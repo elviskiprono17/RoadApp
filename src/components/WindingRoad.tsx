@@ -11,17 +11,19 @@ import Svg, {
   Stop,
 } from 'react-native-svg';
 import type { Goal } from '../types/goal';
+import { useTheme } from '../context/ThemeContext';
+import RoadsideDoodles from './RoadsideDoodles';
 
 // ─── Constants ───────────────────────────────────────────────
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SVG_WIDTH = SCREEN_WIDTH;
 const ROAD_WIDTH = 72;
 const SEGMENT_HEIGHT = 260;
-const PADDING_TOP = 100;
+const PADDING_TOP = 105;
 const PADDING_BOTTOM = 120;
 const CENTER_X = SVG_WIDTH / 2;
 const AMPLITUDE = SVG_WIDTH * 0.26;
-const MILESTONE_RADIUS = 40;
+const MILESTONE_RADIUS = 28;
 
 // ─── Colors ──────────────────────────────────────────────────
 const COLORS = {
@@ -29,10 +31,10 @@ const COLORS = {
   roadEdge: '#C9A000',
   roadShadow: 'rgba(0,0,0,0.25)',
   dashBlack: '#111111',
-  dashGreen: '#00E676',
+  lineEmerald: '#50C878',
   milestoneCompleted: '#78909C',
   milestoneNext: '#FF1744',
-  milestoneFuture: '#00E676',
+  milestoneFuture: '#50C878',
   milestoneStroke: '#FFFFFF',
   finishBlack: '#111111',
   finishWhite: '#FFFFFF',
@@ -59,21 +61,29 @@ interface RoadData {
 }
 
 function generateRoadData(numMilestones: number): RoadData {
+  // totalHeight: PADDING_TOP places the last milestone so the finish line
+  // ends up flush with the top of the SVG (touching the navbar).
   const totalHeight =
-    PADDING_TOP + PADDING_BOTTOM + (numMilestones + 1) * SEGMENT_HEIGHT;
+    PADDING_TOP + PADDING_BOTTOM + numMilestones * SEGMENT_HEIGHT;
 
-  // Milestone positions (ordered bottom → top, i.e. first milestone at bottom)
+  // Milestone positions (ordered bottom → top)
+  // All milestones except the last alternate left/right;
+  // the LAST milestone is centered at CENTER_X at the tip of the road.
   const milestonePoints: MilestonePoint[] = [];
   for (let i = 0; i < numMilestones; i++) {
     const y = totalHeight - PADDING_BOTTOM - (i + 1) * SEGMENT_HEIGHT;
-    const x = CENTER_X + (i % 2 === 0 ? AMPLITUDE : -AMPLITUDE);
+    const isLast = i === numMilestones - 1;
+    const x = isLast
+      ? CENTER_X
+      : CENTER_X + (i % 2 === 0 ? AMPLITUDE : -AMPLITUDE);
     milestonePoints.push({ x, y, index: i });
   }
 
-  // Road ends here — below the finish line with a gap
-  const roadEndPoint = { x: CENTER_X, y: 70 };
-  // Finish line banner sits above the road end
-  const finishPoint = { x: CENTER_X, y: 18 };
+  // The last milestone is at the very top/tip of the road
+  const lastMilestone = milestonePoints[numMilestones - 1];
+
+  // Finish line sits just above the last milestone with a gap
+  const finishPoint = { x: CENTER_X, y: lastMilestone.y - 80 };
 
   // Build path and segments
   const startX = CENTER_X;
@@ -100,29 +110,19 @@ function generateRoadData(numMilestones: number): RoadData {
     prevY = ty;
   }
 
-  // Final segment to road end point (NOT the finish line — gap between them)
-  {
-    const cp1x = prevX;
-    const cp1y = prevY - SEGMENT_HEIGHT * 0.45;
-    const cp2x = roadEndPoint.x;
-    const cp2y = roadEndPoint.y + SEGMENT_HEIGHT * 0.45;
-    const curve = `C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${roadEndPoint.x} ${roadEndPoint.y}`;
-    fullPath += ` ${curve}`;
-    segments.push({ path: `M ${prevX} ${prevY} ${curve}` });
-  }
-
+  // No extra segment beyond the last milestone
   return { fullPath, segments, milestonePoints, totalHeight, finishPoint };
 }
 
-// ─── Finish line component — wide banner ────────────────────
+// ─── Finish line component — wide horizontal banner ──────────
 function FinishLine({ x, y }: { x: number; y: number }) {
   const squareSize = 14;
-  const bannerWidth = SVG_WIDTH * 0.8;
-  const cols = Math.floor(bannerWidth / squareSize);
+  const bannerWidth = SVG_WIDTH;
+  const cols = Math.ceil(bannerWidth / squareSize);
   const rows = 3;
   const totalW = cols * squareSize;
   const totalH = rows * squareSize;
-  const startX = x - totalW / 2;
+  const startX = (SVG_WIDTH - totalW) / 2;
   const startY = y - totalH / 2;
 
   const squares: React.ReactElement[] = [];
@@ -144,37 +144,23 @@ function FinishLine({ x, y }: { x: number; y: number }) {
 
   return (
     <G>
-      {/* Outer border */}
+      {/* Outer border (stretching full width) */}
       <Rect
-        x={startX - 4}
+        x={startX}
         y={startY - 4}
-        width={totalW + 8}
+        width={totalW}
         height={totalH + 8}
-        rx={6}
         fill="rgba(255,255,255,0.15)"
       />
       {/* Background behind checkered */}
       <Rect
-        x={startX - 2}
+        x={startX}
         y={startY - 2}
-        width={totalW + 4}
+        width={totalW}
         height={totalH + 4}
-        rx={4}
         fill="rgba(0,0,0,0.5)"
       />
       {squares}
-      {/* FINISH text centered on the banner */}
-      <SvgText
-        x={x}
-        y={startY + totalH / 2 + 6}
-        textAnchor="middle"
-        fontSize={16}
-        fontWeight="bold"
-        fill={COLORS.finishWhite}
-        letterSpacing={4}
-      >
-        FINISH
-      </SvgText>
     </G>
   );
 }
@@ -199,6 +185,8 @@ export default function WindingRoad({
     () => generateRoadData(numMilestones),
     [numMilestones],
   );
+
+  const { theme } = useTheme();
 
   // Calculate how many milestones are completed
   const completedCount = useMemo(() => {
@@ -227,6 +215,16 @@ export default function WindingRoad({
           <Stop offset="1" stopColor={COLORS.roadEdge} />
         </LinearGradient>
       </Defs>
+
+      {/* ── Roadside doodles (behind road) ── */}
+      <RoadsideDoodles
+        theme={theme}
+        milestonePoints={roadData.milestonePoints}
+        totalHeight={roadData.totalHeight}
+        svgWidth={SVG_WIDTH}
+        amplitude={AMPLITUDE}
+        centerX={CENTER_X}
+      />
 
       {/* ── Road shadow ── */}
       <Path
@@ -274,9 +272,9 @@ export default function WindingRoad({
           <Path
             key={`dash-${i}`}
             d={seg.path}
-            stroke={isCompleted ? COLORS.dashGreen : COLORS.dashBlack}
-            strokeWidth={4}
-            strokeDasharray="18 12"
+            stroke={isCompleted ? COLORS.lineEmerald : COLORS.dashBlack}
+            strokeWidth={isCompleted ? 5 : 4}
+            strokeDasharray={isCompleted ? undefined : "18 12"}
             fill="none"
             strokeLinecap="round"
           />
@@ -301,8 +299,9 @@ export default function WindingRoad({
         }
 
         // Label position: on opposite side of the road curve
-        const labelOnRight = i % 2 === 0;
-        const labelX = labelOnRight ? point.x + 42 : point.x - 42;
+        const isLast = i === numMilestones - 1;
+        const labelOnRight = isLast ? true : i % 2 === 0;
+        const labelX = labelOnRight ? point.x + 34 : point.x - 34;
         const labelAnchor = labelOnRight ? 'start' : 'end';
 
         const isSelected = selectedMilestone === i;
@@ -328,10 +327,11 @@ export default function WindingRoad({
             {/* Number */}
             <SvgText
               x={point.x}
-              y={point.y + 6}
+              y={point.y + 5.5}
               textAnchor="middle"
-              fontSize={15}
+              fontSize={16}
               fontWeight="bold"
+              fontFamily="sans-serif"
               fill="#FFFFFF"
             >
               {i + 1}

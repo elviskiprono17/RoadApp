@@ -448,15 +448,15 @@ const styles = StyleSheet.create({
 
   // Info box
   infoBox: {
-    backgroundColor: 'rgba(0,230,118,0.08)',
+    backgroundColor: 'rgba(80,200,120,0.08)',
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(0,230,118,0.15)',
+    borderColor: 'rgba(80,200,120,0.15)',
   },
   infoText: {
     fontSize: 13,
-    color: 'rgba(0,230,118,0.8)',
+    color: 'rgba(80,200,120,0.8)',
     lineHeight: 18,
   },
 
@@ -471,14 +471,14 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0,230,118,0.15)',
+    backgroundColor: 'rgba(80,200,120,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   milestoneNumberText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#00E676',
+    color: '#50C878',
   },
   milestoneInput: {
     flex: 1,

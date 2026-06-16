@@ -19,6 +19,7 @@ import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getGoal, updateGoal } from '@/storage/goalStorage';
 import WindingRoad from '@/components/WindingRoad';
+import HamburgerMenu from '@/components/HamburgerMenu';
 import type { Goal } from '@/types/goal';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -30,6 +31,7 @@ export default function RoadmapScreen() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateValue, setUpdateValue] = useState('');
   const [selectedMilestone, setSelectedMilestone] = useState(-1);
+  const [showMenu, setShowMenu] = useState(false);
 
   // Update button animation
   const buttonTranslateY = useRef(new Animated.Value(0)).current;
@@ -206,7 +208,7 @@ export default function RoadmapScreen() {
       <SafeAreaView edges={['top']} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity
-            onPress={() => router.push('/settings' as Href)}
+            onPress={() => setShowMenu(true)}
             style={styles.hamburgerButton}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
@@ -361,6 +363,13 @@ export default function RoadmapScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* ── Hamburger Menu Drawer ── */}
+      <HamburgerMenu
+        visible={showMenu}
+        onClose={() => setShowMenu(false)}
+        goal={goal}
+      />
     </View>
   );
 }
@@ -418,7 +427,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#00E676',
+    backgroundColor: '#50C878',
     borderRadius: 2,
   },
   progressText: {
@@ -446,11 +455,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   updateButton: {
-    backgroundColor: '#F5C518',
+    backgroundColor: '#111111',
     paddingHorizontal: 48,
     paddingVertical: 16,
     borderRadius: 30,
-    shadowColor: '#F5C518',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.4,
     shadowRadius: 12,
@@ -459,8 +470,8 @@ const styles = StyleSheet.create({
   updateButtonText: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#1a1a2e',
-    letterSpacing: 2,
+    color: '#FFFFFF',
+    letterSpacing: 1.5,
   },
 
   // Complete banner
@@ -518,7 +529,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalButton: {
-    backgroundColor: '#00E676',
+    backgroundColor: '#50C878',
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
@@ -559,7 +570,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   completeButton: {
-    backgroundColor: '#00E676',
+    backgroundColor: '#50C878',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',

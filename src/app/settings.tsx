@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   saveButton: {
-    color: '#00E676',
+    color: '#50C878',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -486,7 +486,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(0,230,118,0.15)',
+    backgroundColor: 'rgba(80,200,120,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -496,7 +496,7 @@ const styles = StyleSheet.create({
   milestoneNumberText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#00E676',
+    color: '#50C878',
   },
   milestoneNumberTextCompleted: {
     color: '#78909C',
