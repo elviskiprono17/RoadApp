@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { Dimensions } from 'react-native';
+import React, { useMemo, useEffect, useRef, useState } from 'react';
+import { Dimensions, Animated, Easing } from 'react-native';
 import Svg, {
   Path,
   Circle,
@@ -13,6 +13,7 @@ import Svg, {
 import type { Goal } from '../types/goal';
 import { useTheme } from '../context/ThemeContext';
 import RoadsideDoodles from './RoadsideDoodles';
+
 
 // ─── Constants ───────────────────────────────────────────────
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -31,10 +32,10 @@ const COLORS = {
   roadEdge: '#C9A000',
   roadShadow: 'rgba(0,0,0,0.25)',
   dashBlack: '#111111',
-  lineEmerald: '#50C878',
+  lineEmerald: '#1B8A4A',
   milestoneCompleted: '#78909C',
   milestoneNext: '#FF1744',
-  milestoneFuture: '#50C878',
+  milestoneFuture: '#1B8A4A',
   milestoneStroke: '#FFFFFF',
   finishBlack: '#111111',
   finishWhite: '#FFFFFF',
@@ -114,6 +115,69 @@ function generateRoadData(numMilestones: number): RoadData {
   return { fullPath, segments, milestonePoints, totalHeight, finishPoint };
 }
 
+// ─── Approximate Bézier curve length ─────────────────────────
+// Uses adaptive subdivision to estimate cubic Bézier arc length.
+function cubicBezierLength(
+  x0: number, y0: number,
+  cx1: number, cy1: number,
+  cx2: number, cy2: number,
+  x1: number, y1: number,
+  steps: number = 64
+): number {
+  let length = 0;
+  let px = x0;
+  let py = y0;
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const u = 1 - t;
+    const x = u * u * u * x0 + 3 * u * u * t * cx1 + 3 * u * t * t * cx2 + t * t * t * x1;
+    const y = u * u * u * y0 + 3 * u * u * t * cy1 + 3 * u * t * t * cy2 + t * t * t * y1;
+    const dx = x - px;
+    const dy = y - py;
+    length += Math.sqrt(dx * dx + dy * dy);
+    px = x;
+    py = y;
+  }
+  return length;
+}
+
+// Parse a segment path "M x0 y0 C cx1 cy1 cx2 cy2 x1 y1" and compute its length
+function getSegmentLength(segPath: string): number {
+  const nums = segPath.match(/-?[\d.]+/g);
+  if (!nums || nums.length < 8) return SEGMENT_HEIGHT;
+  const [x0, y0, cx1, cy1, cx2, cy2, x1, y1] = nums.map(Number);
+  return cubicBezierLength(x0, y0, cx1, cy1, cx2, cy2, x1, y1);
+}
+
+// ─── Build a path that is a sub-path of a segment up to fraction t ──
+function getPartialSegmentPath(segPath: string, fraction: number): string {
+  const nums = segPath.match(/-?[\d.]+/g);
+  if (!nums || nums.length < 8 || fraction <= 0) return '';
+  const [x0, y0, cx1, cy1, cx2, cy2, x1, y1] = nums.map(Number);
+
+  const clampedT = Math.min(1, Math.max(0, fraction));
+
+  // De Casteljau split at t — get the "left" sub-curve
+  const t = clampedT;
+  // Level 1
+  const ax = x0 + t * (cx1 - x0);
+  const ay = y0 + t * (cy1 - y0);
+  const bx = cx1 + t * (cx2 - cx1);
+  const by = cy1 + t * (cy2 - cy1);
+  const cx = cx2 + t * (x1 - cx2);
+  const cy = cy2 + t * (y1 - cy2);
+  // Level 2
+  const dx = ax + t * (bx - ax);
+  const dy = ay + t * (by - ay);
+  const ex = bx + t * (cx - bx);
+  const ey = by + t * (cy - by);
+  // Level 3 (point on curve)
+  const fx = dx + t * (ex - dx);
+  const fy = dy + t * (ey - dy);
+
+  return `M ${x0} ${y0} C ${ax} ${ay} ${dx} ${dy} ${fx} ${fy}`;
+}
+
 // ─── Finish line component — wide horizontal banner ──────────
 function FinishLine({ x, y }: { x: number; y: number }) {
   const squareSize = 14;
@@ -164,6 +228,77 @@ function FinishLine({ x, y }: { x: number; y: number }) {
     </G>
   );
 }
+// ─── Pulsing milestone circle ────────────────────────────────
+interface PulsingMilestoneProps {
+  cx: number;
+  cy: number;
+  fillColor: string;
+  isSelected: boolean;
+  index: number;
+}
+
+function PulsingMilestone({ cx, cy, fillColor, isSelected, index }: PulsingMilestoneProps) {
+  const [scale, setScale] = useState(1);
+  const animValue = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Listen to animated value and update state for SVG
+    const id = animValue.addListener(({ value }) => {
+      setScale(0.92 + value * 0.16); // 0.92 → 1.08
+    });
+
+    // Stagger the start so milestones don't all pulse in sync
+    const delay = index * 200;
+    const timeout = setTimeout(() => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(animValue, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+          Animated.timing(animValue, {
+            toValue: 0,
+            duration: 1200,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: false,
+          }),
+        ]),
+      ).start();
+    }, delay);
+
+    return () => {
+      clearTimeout(timeout);
+      animValue.removeListener(id);
+    };
+  }, []);
+
+  return (
+    <G
+      // @ts-ignore — react-native-svg G supports origin/scale but TS types may lag
+      origin={`${cx}, ${cy}`}
+      scale={scale}
+    >
+      {/* Shadow */}
+      <Circle
+        cx={cx + 2}
+        cy={cy + 3}
+        r={MILESTONE_RADIUS}
+        fill="rgba(0,0,0,0.3)"
+      />
+      {/* Circle */}
+      <Circle
+        cx={cx}
+        cy={cy}
+        r={MILESTONE_RADIUS}
+        fill={fillColor}
+        stroke={isSelected ? '#FFFFFF' : COLORS.milestoneStroke}
+        strokeWidth={isSelected ? 4 : 3}
+      />
+    </G>
+  );
+}
 
 // ─── Main component ──────────────────────────────────────────
 interface WindingRoadProps {
@@ -172,12 +307,19 @@ interface WindingRoadProps {
   selectedMilestone: number;
   /** Called when a milestone circle is tapped */
   onMilestonePress: (index: number) => void;
+  /**
+   * Overall progress fraction (0–1) across the entire road.
+   * When provided, the green line fills continuously to this point.
+   * Falls back to milestone-count-based calculation if not provided.
+   */
+  progressFraction?: number;
 }
 
 export default function WindingRoad({
   goal,
   selectedMilestone,
   onMilestonePress,
+  progressFraction,
 }: WindingRoadProps) {
   const numMilestones = goal.milestones.length;
 
@@ -200,6 +342,69 @@ export default function WindingRoad({
   }, [goal]);
 
   const clampedCompleted = Math.min(completedCount, numMilestones);
+
+  // Calculate the actual progress fraction for the green line.
+  // This determines how far along the road the green line extends,
+  // including partial fill between milestones.
+  const effectiveProgressFraction = useMemo(() => {
+    if (progressFraction !== undefined) return Math.min(1, Math.max(0, progressFraction));
+
+    if (goal.type === 'numerical') {
+      // For numerical goals, progress is currentValue / targetValue
+      // mapped linearly across all segments
+      if (!goal.targetValue || goal.targetValue <= 0) return 0;
+      return Math.min(1, Math.max(0, goal.currentValue / goal.targetValue));
+    }
+
+    // For custom goals, calculate based on completed milestones + sub-milestone progress
+    if (numMilestones === 0) return 0;
+
+    let totalProgress = 0;
+    for (let i = 0; i < numMilestones; i++) {
+      const m = goal.milestones[i];
+      if (m.completed) {
+        totalProgress += 1;
+      } else if (m.subMilestones && m.subMilestones.length > 0) {
+        // Partial progress within this milestone based on sub-milestones
+        const completedSubs = m.subMilestones.filter((s) => s.completed).length;
+        totalProgress += completedSubs / m.subMilestones.length;
+        break; // Only the first incomplete milestone can have partial progress
+      } else {
+        break; // No sub-milestones, stop here
+      }
+    }
+
+    return Math.min(1, totalProgress / numMilestones);
+  }, [goal, numMilestones, progressFraction]);
+
+  // Pre-compute segment lengths for fractional mapping
+  const segmentLengths = useMemo(() => {
+    return roadData.segments.map((seg) => getSegmentLength(seg.path));
+  }, [roadData]);
+
+  const totalRoadLength = useMemo(() => {
+    return segmentLengths.reduce((sum, l) => sum + l, 0);
+  }, [segmentLengths]);
+
+  // Map effectiveProgressFraction to per-segment fill fractions
+  const segmentFillFractions = useMemo(() => {
+    const fractions: number[] = new Array(numMilestones).fill(0);
+    if (totalRoadLength === 0 || effectiveProgressFraction <= 0) return fractions;
+
+    let targetLength = effectiveProgressFraction * totalRoadLength;
+    for (let i = 0; i < numMilestones; i++) {
+      const segLen = segmentLengths[i];
+      if (targetLength >= segLen) {
+        fractions[i] = 1;
+        targetLength -= segLen;
+      } else {
+        fractions[i] = targetLength / segLen;
+        targetLength = 0;
+        break;
+      }
+    }
+    return fractions;
+  }, [effectiveProgressFraction, totalRoadLength, segmentLengths, numMilestones]);
 
   return (
     <Svg
@@ -265,16 +470,60 @@ export default function WindingRoad({
         strokeLinejoin="round"
       />
 
-      {/* ── Center dashes per segment ── */}
+      {/* ── Center dashes + smooth green progress line ── */}
       {roadData.segments.map((seg, i) => {
-        const isCompleted = i < clampedCompleted;
+        const fill = segmentFillFractions[i];
+
+        if (fill >= 1) {
+          // Fully completed segment — solid green line
+          return (
+            <Path
+              key={`dash-${i}`}
+              d={seg.path}
+              stroke={COLORS.lineEmerald}
+              strokeWidth={5}
+              fill="none"
+              strokeLinecap="round"
+            />
+          );
+        }
+
+        if (fill > 0) {
+          // Partially filled segment — black dashes underneath, green partial on top
+          const partialPath = getPartialSegmentPath(seg.path, fill);
+          return (
+            <G key={`dash-${i}`}>
+              {/* Full segment as black dashes */}
+              <Path
+                d={seg.path}
+                stroke={COLORS.dashBlack}
+                strokeWidth={4}
+                strokeDasharray="18 12"
+                fill="none"
+                strokeLinecap="round"
+              />
+              {/* Green partial fill */}
+              {partialPath ? (
+                <Path
+                  d={partialPath}
+                  stroke={COLORS.lineEmerald}
+                  strokeWidth={5}
+                  fill="none"
+                  strokeLinecap="round"
+                />
+              ) : null}
+            </G>
+          );
+        }
+
+        // Unfilled segment — black dashes only
         return (
           <Path
             key={`dash-${i}`}
             d={seg.path}
-            stroke={isCompleted ? COLORS.lineEmerald : COLORS.dashBlack}
-            strokeWidth={isCompleted ? 5 : 4}
-            strokeDasharray={isCompleted ? undefined : "18 12"}
+            stroke={COLORS.dashBlack}
+            strokeWidth={4}
+            strokeDasharray="18 12"
             fill="none"
             strokeLinecap="round"
           />
@@ -308,28 +557,20 @@ export default function WindingRoad({
 
         return (
           <G key={`ms-${i}`} onPress={() => onMilestonePress(i)}>
-            {/* Shadow */}
-            <Circle
-              cx={point.x + 2}
-              cy={point.y + 3}
-              r={MILESTONE_RADIUS}
-              fill="rgba(0,0,0,0.3)"
-            />
-            {/* Circle */}
-            <Circle
+            {/* Pulsing milestone group — scale around center */}
+            <PulsingMilestone
               cx={point.x}
               cy={point.y}
-              r={MILESTONE_RADIUS}
-              fill={fillColor}
-              stroke={isSelected ? '#FFFFFF' : COLORS.milestoneStroke}
-              strokeWidth={isSelected ? 4 : 3}
+              fillColor={fillColor}
+              isSelected={isSelected}
+              index={i}
             />
             {/* Number */}
             <SvgText
               x={point.x}
-              y={point.y + 5.5}
+              y={point.y + 7}
               textAnchor="middle"
-              fontSize={16}
+              fontSize={20}
               fontWeight="bold"
               fontFamily="sans-serif"
               fill="#FFFFFF"

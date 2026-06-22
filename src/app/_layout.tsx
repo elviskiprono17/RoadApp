@@ -14,6 +14,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" />
         <Stack.Screen name="create" />
         <Stack.Screen name="roadmap" />
+        <Stack.Screen name="history" />
+        <Stack.Screen name="history-roadmap" />
         <Stack.Screen
           name="settings"
           options={{ animation: 'slide_from_bottom' }}

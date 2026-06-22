@@ -18,9 +18,16 @@ import {
   generateNumericalMilestones,
   type Goal,
   type Milestone,
+  type SubMilestone,
 } from '@/types/goal';
 
 type GoalType = 'numerical' | 'custom';
+
+interface CustomMilestoneData {
+  label: string;
+  subMilestones: string[];
+  expanded: boolean;
+}
 
 export default function CreateScreen() {
   const router = useRouter();
@@ -30,18 +37,21 @@ export default function CreateScreen() {
   const [targetValue, setTargetValue] = useState('');
   const [unit, setUnit] = useState('$');
 
-  // Custom milestones (start with 5 empty)
-  const [customMilestones, setCustomMilestones] = useState<string[]>([
-    '',
-    '',
-    '',
-    '',
-    '',
-  ]);
+  // Custom milestones (start with 5 empty, each with sub-milestone support)
+  const [customMilestones, setCustomMilestones] = useState<CustomMilestoneData[]>(
+    Array.from({ length: 5 }, () => ({
+      label: '',
+      subMilestones: [],
+      expanded: false,
+    })),
+  );
 
   // ─── Handlers ──────────────────────────────────────────
   function addMilestone() {
-    setCustomMilestones((prev) => [...prev, '']);
+    setCustomMilestones((prev) => [
+      ...prev,
+      { label: '', subMilestones: [], expanded: false },
+    ]);
   }
 
   function removeMilestone(index: number) {
@@ -54,7 +64,57 @@ export default function CreateScreen() {
 
   function updateMilestoneLabel(index: number, text: string) {
     setCustomMilestones((prev) =>
-      prev.map((m, i) => (i === index ? text : m)),
+      prev.map((m, i) => (i === index ? { ...m, label: text } : m)),
+    );
+  }
+
+  function toggleMilestoneExpanded(index: number) {
+    setCustomMilestones((prev) =>
+      prev.map((m, i) =>
+        i === index ? { ...m, expanded: !m.expanded } : m,
+      ),
+    );
+  }
+
+  function addSubMilestone(milestoneIndex: number) {
+    setCustomMilestones((prev) =>
+      prev.map((m, i) =>
+        i === milestoneIndex
+          ? { ...m, subMilestones: [...m.subMilestones, ''], expanded: true }
+          : m,
+      ),
+    );
+  }
+
+  function removeSubMilestone(milestoneIndex: number, subIndex: number) {
+    setCustomMilestones((prev) =>
+      prev.map((m, i) =>
+        i === milestoneIndex
+          ? {
+              ...m,
+              subMilestones: m.subMilestones.filter((_, si) => si !== subIndex),
+            }
+          : m,
+      ),
+    );
+  }
+
+  function updateSubMilestoneLabel(
+    milestoneIndex: number,
+    subIndex: number,
+    text: string,
+  ) {
+    setCustomMilestones((prev) =>
+      prev.map((m, i) =>
+        i === milestoneIndex
+          ? {
+              ...m,
+              subMilestones: m.subMilestones.map((s, si) =>
+                si === subIndex ? text : s,
+              ),
+            }
+          : m,
+      ),
     );
   }
 
@@ -87,7 +147,7 @@ export default function CreateScreen() {
       router.replace('/roadmap' as Href);
     } else {
       // Custom goal
-      const validMilestones = customMilestones.filter((m) => m.trim());
+      const validMilestones = customMilestones.filter((m) => m.label.trim());
       if (validMilestones.length < 5) {
         Alert.alert(
           'Need More Milestones',
@@ -96,11 +156,21 @@ export default function CreateScreen() {
         return;
       }
 
-      const milestones: Milestone[] = validMilestones.map((label) => ({
-        id: generateId(),
-        label: label.trim(),
-        completed: false,
-      }));
+      const milestones: Milestone[] = validMilestones.map((m) => {
+        const validSubs = m.subMilestones.filter((s) => s.trim());
+        const subMilestones: SubMilestone[] = validSubs.map((s) => ({
+          id: generateId(),
+          label: s.trim(),
+          completed: false,
+        }));
+
+        return {
+          id: generateId(),
+          label: m.label.trim(),
+          completed: false,
+          ...(subMilestones.length > 0 ? { subMilestones } : {}),
+        };
+      });
 
       const goal: Goal = {
         id: generateId(),
@@ -258,31 +328,82 @@ export default function CreateScreen() {
                 Milestones ({customMilestones.length})
               </Text>
               <Text style={styles.sublabel}>
-                Add at least 5 milestones for your journey
+                Add at least 5 milestones for your journey. Tap ▾ to add sub-goals.
               </Text>
 
-              {customMilestones.map((label, index) => (
-                <View key={index} style={styles.milestoneRow}>
-                  <View style={styles.milestoneNumber}>
-                    <Text style={styles.milestoneNumberText}>
-                      {index + 1}
-                    </Text>
+              {customMilestones.map((milestone, index) => (
+                <View key={index} style={styles.milestoneBlock}>
+                  {/* Main milestone row */}
+                  <View style={styles.milestoneRow}>
+                    <View style={styles.milestoneNumber}>
+                      <Text style={styles.milestoneNumberText}>
+                        {index + 1}
+                      </Text>
+                    </View>
+                    <TextInput
+                      style={styles.milestoneInput}
+                      value={milestone.label}
+                      onChangeText={(text) =>
+                        updateMilestoneLabel(index, text)
+                      }
+                      placeholder={`Milestone ${index + 1}`}
+                      placeholderTextColor="rgba(255,255,255,0.2)"
+                    />
+                    <TouchableOpacity
+                      onPress={() => toggleMilestoneExpanded(index)}
+                      style={styles.expandButton}
+                    >
+                      <Text style={styles.expandButtonText}>
+                        {milestone.expanded ? '▴' : '▾'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => removeMilestone(index)}
+                      style={styles.removeButton}
+                    >
+                      <Text style={styles.removeButtonText}>✕</Text>
+                    </TouchableOpacity>
                   </View>
-                  <TextInput
-                    style={styles.milestoneInput}
-                    value={label}
-                    onChangeText={(text) =>
-                      updateMilestoneLabel(index, text)
-                    }
-                    placeholder={`Milestone ${index + 1}`}
-                    placeholderTextColor="rgba(255,255,255,0.2)"
-                  />
-                  <TouchableOpacity
-                    onPress={() => removeMilestone(index)}
-                    style={styles.removeButton}
-                  >
-                    <Text style={styles.removeButtonText}>✕</Text>
-                  </TouchableOpacity>
+
+                  {/* Sub-milestones section */}
+                  {milestone.expanded && (
+                    <View style={styles.subMilestoneContainer}>
+                      {milestone.subMilestones.map((subLabel, subIndex) => (
+                        <View key={subIndex} style={styles.subMilestoneRow}>
+                          <View style={styles.subMilestoneConnector}>
+                            <View style={styles.subConnectorLine} />
+                            <View style={styles.subConnectorDot} />
+                          </View>
+                          <TextInput
+                            style={styles.subMilestoneInput}
+                            value={subLabel}
+                            onChangeText={(text) =>
+                              updateSubMilestoneLabel(index, subIndex, text)
+                            }
+                            placeholder={`Sub-goal ${subIndex + 1}`}
+                            placeholderTextColor="rgba(255,255,255,0.2)"
+                          />
+                          <TouchableOpacity
+                            onPress={() =>
+                              removeSubMilestone(index, subIndex)
+                            }
+                            style={styles.subRemoveButton}
+                          >
+                            <Text style={styles.subRemoveButtonText}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+
+                      <TouchableOpacity
+                        style={styles.addSubButton}
+                        onPress={() => addSubMilestone(index)}
+                      >
+                        <Text style={styles.addSubButtonText}>
+                          + Add Sub-goal
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               ))}
 
@@ -448,37 +569,41 @@ const styles = StyleSheet.create({
 
   // Info box
   infoBox: {
-    backgroundColor: 'rgba(80,200,120,0.08)',
+    backgroundColor: 'rgba(27,138,74,0.08)',
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: 'rgba(80,200,120,0.15)',
+    borderColor: 'rgba(27,138,74,0.15)',
   },
   infoText: {
     fontSize: 13,
-    color: 'rgba(80,200,120,0.8)',
+    color: 'rgba(27,138,74,0.8)',
     lineHeight: 18,
+  },
+
+  // Milestone block (contains main row + sub-milestones)
+  milestoneBlock: {
+    marginBottom: 10,
   },
 
   // Milestone rows
   milestoneRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
     gap: 10,
   },
   milestoneNumber: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(80,200,120,0.15)',
+    backgroundColor: 'rgba(27,138,74,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   milestoneNumberText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#50C878',
+    color: '#1B8A4A',
   },
   milestoneInput: {
     flex: 1,
@@ -490,6 +615,19 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
+  },
+  expandButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(27,138,74,0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expandButtonText: {
+    color: '#1B8A4A',
+    fontSize: 16,
+    fontWeight: '700',
   },
   removeButton: {
     width: 32,
@@ -503,6 +641,80 @@ const styles = StyleSheet.create({
     color: '#FF1744',
     fontSize: 14,
     fontWeight: '700',
+  },
+
+  // Sub-milestone styles
+  subMilestoneContainer: {
+    marginLeft: 42,
+    marginTop: 8,
+    paddingLeft: 12,
+    borderLeftWidth: 2,
+    borderLeftColor: 'rgba(27,138,74,0.2)',
+  },
+  subMilestoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  subMilestoneConnector: {
+    width: 16,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  subConnectorLine: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 12,
+    width: 2,
+    backgroundColor: 'rgba(27,138,74,0.2)',
+  },
+  subConnectorDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(27,138,74,0.4)',
+  },
+  subMilestoneInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  subRemoveButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(255,23,68,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  subRemoveButtonText: {
+    color: '#FF1744',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  addSubButton: {
+    borderWidth: 1.5,
+    borderColor: 'rgba(27,138,74,0.2)',
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  addSubButtonText: {
+    color: 'rgba(27,138,74,0.6)',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // Add milestone button

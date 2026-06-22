@@ -1,5 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useState } from 'react';
 
 export type ThemeName = 'space' | 'egyptians' | 'ocean';
 
@@ -8,41 +7,18 @@ interface ThemeContextType {
   setTheme: (theme: ThemeName) => void;
 }
 
-const THEME_KEY = '@roadapp_theme';
-
 const ThemeContext = createContext<ThemeContextType>({
   theme: 'space',
   setTheme: () => {},
 });
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ThemeName>('space');
-  const [loaded, setLoaded] = useState(false);
+  // Hardcoded to 'space' — no theme switching
+  const [theme] = useState<ThemeName>('space');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await AsyncStorage.getItem(THEME_KEY);
-        if (stored && ['space', 'egyptians', 'ocean'].includes(stored)) {
-          setThemeState(stored as ThemeName);
-        }
-      } catch {
-        // ignore
-      }
-      setLoaded(true);
-    })();
-  }, []);
-
-  async function setTheme(newTheme: ThemeName) {
-    setThemeState(newTheme);
-    try {
-      await AsyncStorage.setItem(THEME_KEY, newTheme);
-    } catch {
-      // ignore
-    }
+  function setTheme(_newTheme: ThemeName) {
+    // No-op: theme is locked to 'space'
   }
-
-  if (!loaded) return null;
 
   return (
     <ThemeContext.Provider value={{ theme, setTheme }}>

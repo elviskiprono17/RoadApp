@@ -13,7 +13,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useTheme, type ThemeName } from '../context/ThemeContext';
 import type { Goal } from '../types/goal';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -23,42 +22,20 @@ interface HamburgerMenuProps {
   visible: boolean;
   onClose: () => void;
   goal: Goal | null;
+  onHistoryPress: () => void;
+  onNewGoalPress?: () => void;
 }
-
-// ─── Theme config ────────────────────────────────────────────
-const THEMES: { key: ThemeName; emoji: string; label: string; desc: string; color: string }[] = [
-  {
-    key: 'space',
-    emoji: '🚀',
-    label: 'Space',
-    desc: 'Rockets, stars & planets',
-    color: '#7E57C2',
-  },
-  {
-    key: 'egyptians',
-    emoji: '🏺',
-    label: 'Egyptians',
-    desc: 'Pyramids, scarabs & pharaohs',
-    color: '#E0A96D',
-  },
-  {
-    key: 'ocean',
-    emoji: '🌊',
-    label: 'Ocean',
-    desc: 'Fish, shells & waves',
-    color: '#42A5F5',
-  },
-];
 
 export default function HamburgerMenu({
   visible,
   onClose,
   goal,
+  onHistoryPress,
+  onNewGoalPress,
 }: HamburgerMenuProps) {
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const [feedbackText, setFeedbackText] = useState('');
-  const { theme, setTheme } = useTheme();
   const [isRendered, setIsRendered] = useState(false);
 
   useEffect(() => {
@@ -206,59 +183,34 @@ export default function HamburgerMenu({
               </TouchableOpacity>
             </View>
 
-            {/* ═══ HISTORY SECTION ═══ */}
-            <View style={styles.section}>
+            {/* ═══ NEW GOAL BUTTON ═══ */}
+            <TouchableOpacity
+              style={styles.newGoalButton}
+              onPress={onNewGoalPress}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.newGoalEmoji}>🚀</Text>
+              <Text style={styles.newGoalText}>New Goal</Text>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider} />
+
+            {/* ═══ HISTORY SECTION (Clickable) ═══ */}
+            <TouchableOpacity
+              style={styles.section}
+              onPress={onHistoryPress}
+              activeOpacity={0.7}
+            >
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionEmoji}>📜</Text>
                 <Text style={styles.sectionTitle}>History</Text>
+                <Text style={styles.chevron}>›</Text>
               </View>
               {historyContent || (
                 <Text style={styles.emptyText}>No goal created yet</Text>
               )}
-            </View>
-
-            <View style={styles.divider} />
-
-            {/* ═══ THEMES SECTION ═══ */}
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionEmoji}>🎨</Text>
-                <Text style={styles.sectionTitle}>Themes</Text>
-              </View>
-              <Text style={styles.sectionSubtitle}>
-                Choose a theme to decorate the roadside
-              </Text>
-
-              {THEMES.map((t) => {
-                const isActive = theme === t.key;
-                return (
-                  <TouchableOpacity
-                    key={t.key}
-                    style={[
-                      styles.themeCard,
-                      isActive && { borderColor: t.color, backgroundColor: `${t.color}15` },
-                    ]}
-                    onPress={() => setTheme(t.key)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.themeCardLeft}>
-                      <Text style={styles.themeEmoji}>{t.emoji}</Text>
-                      <View>
-                        <Text style={[styles.themeLabel, isActive && { color: t.color }]}>
-                          {t.label}
-                        </Text>
-                        <Text style={styles.themeDesc}>{t.desc}</Text>
-                      </View>
-                    </View>
-                    {isActive && (
-                      <View style={[styles.activeIndicator, { backgroundColor: t.color }]}>
-                        <Text style={styles.activeCheck}>✓</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.divider} />
 
@@ -279,24 +231,16 @@ export default function HamburgerMenu({
                 placeholder="Share your feedback, suggestions, or report a bug..."
                 placeholderTextColor="rgba(255,255,255,0.25)"
                 multiline
-                numberOfLines={5}
+                numberOfLines={7}
                 textAlignVertical="top"
               />
 
               <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  !feedbackText.trim() && styles.submitButtonDisabled,
-                ]}
+                style={styles.submitButton}
                 onPress={handleFeedbackSubmit}
                 activeOpacity={0.8}
               >
-                <Text
-                  style={[
-                    styles.submitButtonText,
-                    !feedbackText.trim() && styles.submitButtonTextDisabled,
-                  ]}
-                >
+                <Text style={styles.submitButtonText}>
                   Submit Feedback
                 </Text>
               </TouchableOpacity>
@@ -388,6 +332,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     marginLeft: 28,
   },
+  chevron: {
+    fontSize: 22,
+    color: 'rgba(255,255,255,0.35)',
+    fontWeight: '600',
+    marginLeft: 'auto',
+  },
   divider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -429,64 +379,44 @@ const styles = StyleSheet.create({
   },
   miniProgressFill: {
     height: '100%',
-    backgroundColor: '#50C878',
+    backgroundColor: '#1B8A4A',
     borderRadius: 3,
   },
   percentageText: {
     fontSize: 12,
-    color: 'rgba(80,200,120,0.7)',
+    color: 'rgba(27,138,74,0.8)',
     marginTop: 6,
     fontWeight: '600',
     textAlign: 'right',
+  },
+
+  // New Goal button
+  newGoalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,197,24,0.08)',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,24,0.15)',
+    gap: 10,
+    marginBottom: 8,
+  },
+  newGoalEmoji: {
+    fontSize: 20,
+  },
+  newGoalText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#F5C518',
+    letterSpacing: 0.3,
+    flex: 1,
   },
   emptyText: {
     fontSize: 14,
     color: 'rgba(255,255,255,0.3)',
     fontStyle: 'italic',
     marginLeft: 28,
-  },
-
-  // Themes
-  themeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  themeCardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  themeEmoji: {
-    fontSize: 28,
-  },
-  themeLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  themeDesc: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 2,
-  },
-  activeIndicator: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activeCheck: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '800',
   },
 
   // Feedback
@@ -498,7 +428,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
-    minHeight: 110,
+    minHeight: 160,
     lineHeight: 20,
   },
   submitButton: {
@@ -508,15 +438,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 12,
   },
-  submitButtonDisabled: {
-    backgroundColor: 'rgba(245,197,24,0.2)',
-  },
   submitButtonText: {
     fontSize: 15,
     fontWeight: '700',
     color: '#1a1a2e',
-  },
-  submitButtonTextDisabled: {
-    color: 'rgba(26,26,46,0.4)',
   },
 });

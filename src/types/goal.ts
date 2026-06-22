@@ -1,9 +1,17 @@
+export interface SubMilestone {
+  id: string;
+  label: string;
+  completed: boolean;
+}
+
 export interface Milestone {
   id: string;
   label: string;
   completed: boolean;
   /** For numerical goals, the target value at this milestone */
   value?: number;
+  /** Sub-goals under this milestone (custom goals only) */
+  subMilestones?: SubMilestone[];
 }
 
 export interface Goal {
@@ -19,6 +27,8 @@ export interface Goal {
   /** Ordered list of milestones */
   milestones: Milestone[];
   createdAt: string;
+  /** ISO date when the goal was completed/archived */
+  completedAt?: string;
 }
 
 /** Generate a simple unique ID */

@@ -8,7 +8,6 @@ import {
   Animated,
   Modal,
   TextInput,
-  Easing,
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
@@ -17,12 +16,15 @@ import {
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getGoal, updateGoal } from '@/storage/goalStorage';
+import { getGoal, updateGoal, archiveGoal } from '@/storage/goalStorage';
 import WindingRoad from '@/components/WindingRoad';
 import HamburgerMenu from '@/components/HamburgerMenu';
 import type { Goal } from '@/types/goal';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+// Darker green used across the UI
+const DARK_GREEN = '#1B8A4A';
 
 export default function RoadmapScreen() {
   const router = useRouter();
@@ -123,6 +125,34 @@ export default function RoadmapScreen() {
     [],
   );
 
+  // ─── Progress fraction calculation ─────────────────────
+  function calculateProgressFraction(g: Goal): number {
+    if (g.type === 'numerical') {
+      if (!g.targetValue || g.targetValue <= 0) return 0;
+      return Math.min(1, Math.max(0, g.currentValue / g.targetValue));
+    }
+
+    // Custom goal: milestones + sub-milestones
+    const numMilestones = g.milestones.length;
+    if (numMilestones === 0) return 0;
+
+    let totalProgress = 0;
+    for (let i = 0; i < numMilestones; i++) {
+      const m = g.milestones[i];
+      if (m.completed) {
+        totalProgress += 1;
+      } else if (m.subMilestones && m.subMilestones.length > 0) {
+        const completedSubs = m.subMilestones.filter((s) => s.completed).length;
+        totalProgress += completedSubs / m.subMilestones.length;
+        break;
+      } else {
+        break;
+      }
+    }
+
+    return Math.min(1, totalProgress / numMilestones);
+  }
+
   // ─── Update handlers ────────────────────────────────────
   function openUpdateModal() {
     if (!goal) return;
@@ -154,6 +184,12 @@ export default function RoadmapScreen() {
     await updateGoal(updatedGoal);
     setGoal(updatedGoal);
     setShowUpdateModal(false);
+
+    // Auto-archive if goal is now complete
+    const isNowComplete = clampedValue >= (goal.targetValue || 0);
+    if (isNowComplete) {
+      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+    }
   }
 
   async function handleCustomMilestoneComplete() {
@@ -167,6 +203,11 @@ export default function RoadmapScreen() {
     updatedMilestones[nextIndex] = {
       ...updatedMilestones[nextIndex],
       completed: true,
+      // Mark all sub-milestones as completed too
+      subMilestones: updatedMilestones[nextIndex].subMilestones?.map((s) => ({
+        ...s,
+        completed: true,
+      })),
     };
 
     const updatedGoal: Goal = {
@@ -178,6 +219,51 @@ export default function RoadmapScreen() {
     await updateGoal(updatedGoal);
     setGoal(updatedGoal);
     setShowUpdateModal(false);
+
+    // Auto-archive if all milestones are now complete
+    const isNowComplete = updatedMilestones.every((m) => m.completed);
+    if (isNowComplete) {
+      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+    }
+  }
+
+  async function handleToggleSubMilestone(milestoneIndex: number, subIndex: number) {
+    if (!goal) return;
+
+    const updatedMilestones = goal.milestones.map((m, i) => {
+      if (i !== milestoneIndex) return m;
+      if (!m.subMilestones || m.subMilestones.length === 0) return m;
+
+      const updatedSubs = m.subMilestones.map((s, si) =>
+        si === subIndex ? { ...s, completed: !s.completed } : s,
+      );
+
+      // Only auto-complete when every sub-milestone is checked
+      const allSubsComplete =
+        updatedSubs.length > 0 && updatedSubs.every((s) => s.completed);
+
+      return {
+        ...m,
+        subMilestones: updatedSubs,
+        completed: allSubsComplete,
+      };
+    });
+
+    const updatedGoal: Goal = {
+      ...goal,
+      milestones: updatedMilestones,
+      currentValue: updatedMilestones.filter((m) => m.completed).length,
+    };
+
+    await updateGoal(updatedGoal);
+    setGoal(updatedGoal);
+
+    // Auto-archive if all milestones are now complete
+    const isNowComplete = updatedMilestones.every((m) => m.completed);
+    if (isNowComplete) {
+      setShowUpdateModal(false);
+      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+    }
   }
 
   // ─── Render ─────────────────────────────────────────────
@@ -199,6 +285,22 @@ export default function RoadmapScreen() {
     goal.type === 'numerical'
       ? goal.currentValue >= (goal.targetValue || 0)
       : goal.milestones.every((m) => m.completed);
+
+  // Calculate progress percentage for the header bar
+  const progressPercent = Math.min(
+    100,
+    goal.type === 'numerical'
+      ? ((goal.currentValue / (goal.targetValue || 1)) * 100)
+      : ((goal.milestones.filter((m) => m.completed).length /
+          goal.milestones.length) *
+          100),
+  );
+
+  // For custom goals with sub-milestones, show finer-grained progress in header
+  const headerProgressPercent = (() => {
+    if (goal.type === 'numerical') return progressPercent;
+    return calculateProgressFraction(goal) * 100;
+  })();
 
   return (
     <View style={styles.container}>
@@ -231,16 +333,7 @@ export default function RoadmapScreen() {
           <View
             style={[
               styles.progressBarFill,
-              {
-                width: `${Math.min(
-                  100,
-                  goal.type === 'numerical'
-                    ? ((goal.currentValue / (goal.targetValue || 1)) * 100)
-                    : ((goal.milestones.filter((m) => m.completed).length /
-                        goal.milestones.length) *
-                        100),
-                )}%`,
-              },
+              { width: `${headerProgressPercent}%` },
             ]}
           />
         </View>
@@ -266,6 +359,7 @@ export default function RoadmapScreen() {
           onMilestonePress={(i) =>
             setSelectedMilestone(selectedMilestone === i ? -1 : i)
           }
+          progressFraction={calculateProgressFraction(goal)}
         />
       </ScrollView>
 
@@ -337,14 +431,75 @@ export default function RoadmapScreen() {
                     <Text style={styles.milestoneCardTitle}>
                       {`${currentMilestoneIndex + 1}. ${currentMilestone.label}`}
                     </Text>
-                    <TouchableOpacity
-                      style={styles.completeButton}
-                      onPress={handleCustomMilestoneComplete}
-                    >
-                      <Text style={styles.completeButtonText}>
-                        ✓ Mark Complete
-                      </Text>
-                    </TouchableOpacity>
+
+                    {/* Sub-milestones checklist */}
+                    {currentMilestone.subMilestones &&
+                      currentMilestone.subMilestones.length > 0 && (
+                        <View style={styles.subChecklist}>
+                          <Text style={styles.subChecklistTitle}>
+                            Sub-goals ({currentMilestone.subMilestones.filter((s) => s.completed).length}/{currentMilestone.subMilestones.length})
+                          </Text>
+                          <ScrollView
+                            style={styles.subChecklistScroll}
+                            nestedScrollEnabled
+                            showsVerticalScrollIndicator={false}
+                          >
+                            {currentMilestone.subMilestones.map((sub, subIdx) => (
+                              <TouchableOpacity
+                                key={sub.id}
+                                style={styles.subChecklistItem}
+                                onPress={() =>
+                                  handleToggleSubMilestone(
+                                    currentMilestoneIndex,
+                                    subIdx,
+                                  )
+                                }
+                                activeOpacity={0.7}
+                              >
+                                <View
+                                  style={[
+                                    styles.subCheckbox,
+                                    sub.completed && styles.subCheckboxChecked,
+                                  ]}
+                                >
+                                  {sub.completed && (
+                                    <Text style={styles.subCheckmark}>✓</Text>
+                                  )}
+                                </View>
+                                <Text
+                                  style={[
+                                    styles.subChecklistLabel,
+                                    sub.completed && styles.subChecklistLabelDone,
+                                  ]}
+                                >
+                                  {sub.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+                      )}
+                    {/* Mark Complete — only for milestones without sub-goals */}
+                    {(!currentMilestone.subMilestones ||
+                      currentMilestone.subMilestones.length === 0) ? (
+                      <TouchableOpacity
+                        style={styles.completeButton}
+                        onPress={handleCustomMilestoneComplete}
+                      >
+                        <Text style={styles.completeButtonText}>
+                          ✓ Mark Complete
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        style={styles.completeButton}
+                        onPress={() => setShowUpdateModal(false)}
+                      >
+                        <Text style={styles.completeButtonText}>
+                          Done
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 ) : (
                   <Text style={styles.allDoneText}>
@@ -369,6 +524,14 @@ export default function RoadmapScreen() {
         visible={showMenu}
         onClose={() => setShowMenu(false)}
         goal={goal}
+        onHistoryPress={() => {
+          setShowMenu(false);
+          router.push('/history' as Href);
+        }}
+        onNewGoalPress={() => {
+          setShowMenu(false);
+          router.push('/create' as Href);
+        }}
       />
     </View>
   );
@@ -427,7 +590,7 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: '#50C878',
+    backgroundColor: DARK_GREEN,
     borderRadius: 2,
   },
   progressText: {
@@ -455,7 +618,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   updateButton: {
-    backgroundColor: '#111111',
+    backgroundColor: DARK_GREEN,
     paddingHorizontal: 48,
     paddingVertical: 16,
     borderRadius: 30,
@@ -504,6 +667,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     padding: 28,
     paddingBottom: 40,
+    maxHeight: '80%',
   },
   modalTitle: {
     fontSize: 20,
@@ -529,7 +693,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalButton: {
-    backgroundColor: '#50C878',
+    backgroundColor: DARK_GREEN,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
@@ -538,7 +702,7 @@ const styles = StyleSheet.create({
   modalButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1a1a2e',
+    color: '#FFFFFF',
   },
   modalCancel: {
     alignItems: 'center',
@@ -570,7 +734,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   completeButton: {
-    backgroundColor: '#50C878',
+    backgroundColor: DARK_GREEN,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -578,12 +742,62 @@ const styles = StyleSheet.create({
   completeButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1a1a2e',
+    color: '#FFFFFF',
   },
   allDoneText: {
     fontSize: 16,
     color: '#FFFFFF',
     textAlign: 'center',
     marginVertical: 20,
+  },
+
+  // Sub-milestone checklist in modal
+  subChecklist: {
+    marginBottom: 16,
+  },
+  subChecklistTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 10,
+  },
+  subChecklistScroll: {
+    maxHeight: 200,
+  },
+  subChecklistItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  subCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.2)',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  subCheckboxChecked: {
+    backgroundColor: DARK_GREEN,
+    borderColor: DARK_GREEN,
+  },
+  subCheckmark: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  subChecklistLabel: {
+    flex: 1,
+    fontSize: 15,
+    color: '#FFFFFF',
+  },
+  subChecklistLabelDone: {
+    color: 'rgba(255,255,255,0.4)',
+    textDecorationLine: 'line-through',
   },
 });
