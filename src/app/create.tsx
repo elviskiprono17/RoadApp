@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import {
   type Milestone,
   type SubMilestone,
 } from '@/types/goal';
+import { useAuth } from '@/context/AuthContext';
 
 type GoalType = 'numerical' | 'custom';
 
@@ -31,6 +32,14 @@ interface CustomMilestoneData {
 
 export default function CreateScreen() {
   const router = useRouter();
+  const { canCreateGoal, refreshProfile } = useAuth();
+
+  // Guard: redirect to paywall if free limit hit
+  useEffect(() => {
+    if (!canCreateGoal) {
+      router.replace('/paywall' as Href);
+    }
+  }, [canCreateGoal]);
 
   const [title, setTitle] = useState('');
   const [goalType, setGoalType] = useState<GoalType>('numerical');
@@ -125,64 +134,71 @@ export default function CreateScreen() {
       return;
     }
 
-    if (goalType === 'numerical') {
-      const target = parseFloat(targetValue);
-      if (isNaN(target) || target <= 0) {
-        Alert.alert('Invalid Target', 'Please enter a valid target number.');
-        return;
-      }
+    try {
+      if (goalType === 'numerical') {
+        const target = parseFloat(targetValue);
+        if (isNaN(target) || target <= 0) {
+          Alert.alert('Invalid Target', 'Please enter a valid target number.');
+          return;
+        }
 
-      const goal: Goal = {
-        id: generateId(),
-        title: title.trim(),
-        type: 'numerical',
-        targetValue: target,
-        currentValue: 0,
-        unit: unit.trim(),
-        milestones: generateNumericalMilestones(target, unit.trim()),
-        createdAt: new Date().toISOString(),
-      };
-
-      await saveGoal(goal);
-      router.replace('/roadmap' as Href);
-    } else {
-      // Custom goal
-      const validMilestones = customMilestones.filter((m) => m.label.trim());
-      if (validMilestones.length < 5) {
-        Alert.alert(
-          'Need More Milestones',
-          'Please add at least 5 milestones with labels.',
-        );
-        return;
-      }
-
-      const milestones: Milestone[] = validMilestones.map((m) => {
-        const validSubs = m.subMilestones.filter((s) => s.trim());
-        const subMilestones: SubMilestone[] = validSubs.map((s) => ({
-          id: generateId(),
-          label: s.trim(),
-          completed: false,
-        }));
-
-        return {
-          id: generateId(),
-          label: m.label.trim(),
-          completed: false,
-          ...(subMilestones.length > 0 ? { subMilestones } : {}),
+        const goal: Goal = {
+          id: generateId(), // placeholder — Supabase generates real UUID
+          title: title.trim(),
+          type: 'numerical',
+          targetValue: target,
+          currentValue: 0,
+          unit: unit.trim(),
+          milestones: generateNumericalMilestones(target, unit.trim()),
+          createdAt: new Date().toISOString(),
         };
-      });
 
-      const goal: Goal = {
-        id: generateId(),
-        title: title.trim(),
-        type: 'custom',
-        currentValue: 0,
-        milestones,
-        createdAt: new Date().toISOString(),
-      };
+        await saveGoal(goal);
+        await refreshProfile();
+        router.replace('/roadmap' as Href);
+      } else {
+        // Custom goal
+        const validMilestones = customMilestones.filter((m) => m.label.trim());
+        if (validMilestones.length < 5) {
+          Alert.alert(
+            'Need More Milestones',
+            'Please add at least 5 milestones with labels.',
+          );
+          return;
+        }
 
-      await saveGoal(goal);
-      router.replace('/roadmap' as Href);
+        const milestones: Milestone[] = validMilestones.map((m) => {
+          const validSubs = m.subMilestones.filter((s) => s.trim());
+          const subMilestones: SubMilestone[] = validSubs.map((s) => ({
+            id: generateId(),
+            label: s.trim(),
+            completed: false,
+          }));
+
+          return {
+            id: generateId(),
+            label: m.label.trim(),
+            completed: false,
+            ...(subMilestones.length > 0 ? { subMilestones } : {}),
+          };
+        });
+
+        const goal: Goal = {
+          id: generateId(), // placeholder — Supabase generates real UUID
+          title: title.trim(),
+          type: 'custom',
+          currentValue: 0,
+          milestones,
+          createdAt: new Date().toISOString(),
+        };
+
+        await saveGoal(goal);
+        await refreshProfile();
+        router.replace('/roadmap' as Href);
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Something went wrong saving your goal.';
+      Alert.alert('Error', message);
     }
   }
 

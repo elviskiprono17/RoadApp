@@ -9,16 +9,27 @@ import {
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { getGoal } from '@/storage/goalStorage';
+import { useAuth } from '@/context/AuthContext';
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { user, isLoading: authLoading, canCreateGoal } = useAuth();
   const [loading, setLoading] = useState(true);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    // Wait for auth to finish loading
+    if (authLoading) return;
+
+    // Redirect to login if not authenticated
+    if (!user) {
+      router.replace('/(auth)/login' as Href);
+      return;
+    }
+
     checkExistingGoal();
-  }, []);
+  }, [authLoading, user]);
 
   async function checkExistingGoal() {
     const goal = await getGoal();
@@ -52,7 +63,15 @@ export default function HomeScreen() {
     }
   }
 
-  if (loading) {
+  function handleNewGoal() {
+    if (!canCreateGoal) {
+      router.push('/paywall' as Href);
+    } else {
+      router.push('/create' as Href);
+    }
+  }
+
+  if (loading || authLoading) {
     return <View style={styles.container} />;
   }
 
@@ -69,7 +88,7 @@ export default function HomeScreen() {
       >
         <TouchableOpacity
           style={styles.plusButton}
-          onPress={() => router.push('/create' as Href)}
+          onPress={handleNewGoal}
           activeOpacity={0.8}
         >
           <Text style={styles.plusText}>+</Text>

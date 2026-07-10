@@ -14,6 +14,8 @@ import type { Goal } from '../types/goal';
 import { useTheme } from '../context/ThemeContext';
 import RoadsideDoodles from './RoadsideDoodles';
 
+const AnimatedG = Animated.createAnimatedComponent(G);
+
 
 // ─── Constants ───────────────────────────────────────────────
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -33,9 +35,9 @@ const COLORS = {
   roadShadow: 'rgba(0,0,0,0.25)',
   dashBlack: '#111111',
   lineEmerald: '#1B8A4A',
-  milestoneCompleted: '#78909C',
+  milestoneCompleted: '#1B8A4A',
   milestoneNext: '#FF1744',
-  milestoneFuture: '#1B8A4A',
+  milestoneFuture: '#2563EB',
   milestoneStroke: '#FFFFFF',
   finishBlack: '#111111',
   finishWhite: '#FFFFFF',
@@ -238,15 +240,9 @@ interface PulsingMilestoneProps {
 }
 
 function PulsingMilestone({ cx, cy, fillColor, isSelected, index }: PulsingMilestoneProps) {
-  const [scale, setScale] = useState(1);
   const animValue = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Listen to animated value and update state for SVG
-    const id = animValue.addListener(({ value }) => {
-      setScale(0.92 + value * 0.16); // 0.92 → 1.08
-    });
-
     // Stagger the start so milestones don't all pulse in sync
     const delay = index * 200;
     const timeout = setTimeout(() => {
@@ -256,13 +252,13 @@ function PulsingMilestone({ cx, cy, fillColor, isSelected, index }: PulsingMiles
             toValue: 1,
             duration: 1200,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
           Animated.timing(animValue, {
             toValue: 0,
             duration: 1200,
             easing: Easing.inOut(Easing.ease),
-            useNativeDriver: false,
+            useNativeDriver: true,
           }),
         ]),
       ).start();
@@ -270,15 +266,25 @@ function PulsingMilestone({ cx, cy, fillColor, isSelected, index }: PulsingMiles
 
     return () => {
       clearTimeout(timeout);
-      animValue.removeListener(id);
     };
   }, []);
 
+  const scale = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.92, 1.08],
+  });
+
   return (
-    <G
-      // @ts-ignore — react-native-svg G supports origin/scale but TS types may lag
-      origin={`${cx}, ${cy}`}
-      scale={scale}
+    <AnimatedG
+      style={{
+        transform: [
+          { translateX: cx },
+          { translateY: cy },
+          { scale: scale },
+          { translateX: -cx },
+          { translateY: -cy },
+        ],
+      }}
     >
       {/* Shadow */}
       <Circle
@@ -296,7 +302,7 @@ function PulsingMilestone({ cx, cy, fillColor, isSelected, index }: PulsingMiles
         stroke={isSelected ? '#FFFFFF' : COLORS.milestoneStroke}
         strokeWidth={isSelected ? 4 : 3}
       />
-    </G>
+    </AnimatedG>
   );
 }
 
@@ -386,12 +392,44 @@ export default function WindingRoad({
     return segmentLengths.reduce((sum, l) => sum + l, 0);
   }, [segmentLengths]);
 
-  // Map effectiveProgressFraction to per-segment fill fractions
+  // Animated value for slow, smooth road progress crawling
+  const animatedProgress = useRef(new Animated.Value(0)).current;
+  const [displayProgressVal, setDisplayProgressVal] = useState(0);
+  const isInitialized = useRef(false);
+
+  useEffect(() => {
+    if (effectiveProgressFraction !== undefined) {
+      if (!isInitialized.current) {
+        animatedProgress.setValue(effectiveProgressFraction);
+        setDisplayProgressVal(effectiveProgressFraction);
+        isInitialized.current = true;
+      } else {
+        // Animate slowly over 1200ms so the user can easily see it crawl in real-time
+        Animated.timing(animatedProgress, {
+          toValue: effectiveProgressFraction,
+          duration: 1200,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: false, // SVG paths cannot use native driver
+        }).start();
+      }
+    }
+  }, [effectiveProgressFraction]);
+
+  useEffect(() => {
+    const id = animatedProgress.addListener(({ value }) => {
+      setDisplayProgressVal(value);
+    });
+    return () => {
+      animatedProgress.removeListener(id);
+    };
+  }, []);
+
+  // Map displayProgressVal to per-segment fill fractions
   const segmentFillFractions = useMemo(() => {
     const fractions: number[] = new Array(numMilestones).fill(0);
-    if (totalRoadLength === 0 || effectiveProgressFraction <= 0) return fractions;
+    if (totalRoadLength === 0 || displayProgressVal <= 0) return fractions;
 
-    let targetLength = effectiveProgressFraction * totalRoadLength;
+    let targetLength = displayProgressVal * totalRoadLength;
     for (let i = 0; i < numMilestones; i++) {
       const segLen = segmentLengths[i];
       if (targetLength >= segLen) {
@@ -404,7 +442,7 @@ export default function WindingRoad({
       }
     }
     return fractions;
-  }, [effectiveProgressFraction, totalRoadLength, segmentLengths, numMilestones]);
+  }, [displayProgressVal, totalRoadLength, segmentLengths, numMilestones]);
 
   return (
     <Svg
@@ -540,16 +578,16 @@ export default function WindingRoad({
 
         let fillColor: string;
         if (i < clampedCompleted) {
-          fillColor = COLORS.milestoneCompleted; // Grey — passed
+          fillColor = COLORS.milestoneCompleted; // Green — completed
         } else if (i === clampedCompleted) {
           fillColor = COLORS.milestoneNext; // Red — next target
         } else {
-          fillColor = COLORS.milestoneFuture; // Green — future
+          fillColor = COLORS.milestoneFuture; // Blue — future
         }
 
-        // Label position: on opposite side of the road curve
+        // Label position: on the inner side of the road curve (towards screen center) where there is space
         const isLast = i === numMilestones - 1;
-        const labelOnRight = isLast ? true : i % 2 === 0;
+        const labelOnRight = isLast ? true : i % 2 !== 0;
         const labelX = labelOnRight ? point.x + 34 : point.x - 34;
         const labelAnchor = labelOnRight ? 'start' : 'end';
 
@@ -582,19 +620,19 @@ export default function WindingRoad({
               <>
                 {/* Label background */}
                 <Rect
-                  x={labelOnRight ? labelX - 6 : labelX - (Math.min(milestone.label.length, 18) * 6.5) - 6}
-                  y={point.y - 12}
-                  width={Math.min(milestone.label.length, 18) * 6.5 + 12}
-                  height={26}
+                  x={labelOnRight ? labelX - 6 : labelX - (Math.min(milestone.label.length, 18) * 8.0) - 6}
+                  y={point.y - 15}
+                  width={Math.min(milestone.label.length, 18) * 8.0 + 12}
+                  height={30}
                   rx={8}
-                  fill="rgba(0,0,0,0.7)"
+                  fill="rgba(0,0,0,0.85)"
                 />
                 <SvgText
                   x={labelX}
                   y={point.y + 5}
                   textAnchor={labelAnchor}
-                  fontSize={12}
-                  fontWeight="600"
+                  fontSize={15}
+                  fontWeight="bold"
                   fill={COLORS.labelColor}
                 >
                   {milestone.label.length > 18

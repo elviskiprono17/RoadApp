@@ -249,6 +249,138 @@ function DotStar({ x, y, scale = 1 }: DoodleProps) {
   return <Circle cx={x} cy={y} r={2.2 * (scale || 1)} fill={S} />;
 }
 
+function SpiralGalaxy({ x, y, scale = 1 }: DoodleProps) {
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale}) rotate(-10)`}>
+      <Circle cx={0} cy={0} r={4} fill={S} />
+      <Path d="M 0 0 C 6 2, 10 -4, 6 -10 C 2 -16, -10 -14, -14 -6 C -18 2, -12 12, -2 15 C 8 18, 18 10, 18 0" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Path d="M 0 0 C -6 -2, -10 4, -6 10 C -2 16, 10 14, 14 6 C 18 -2, 12 -12, 2 -15 C -8 -18, -18 -10, -18 0" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={-12} cy={-12} r={1} fill={S} />
+      <Circle cx={12} cy={12} r={1} fill={S} />
+      <Circle cx={-15} cy={8} r={1.2} fill={S} />
+      <Circle cx={15} cy={-8} r={1.2} fill={S} />
+    </G>
+  );
+}
+
+function Satellite({ x, y, scale = 1, flip }: DoodleProps) {
+  const f = flip ? -1 : 1;
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale * f}, ${scale}) rotate(25)`}>
+      <Rect x={-28} y={-4} width={14} height={8} fill={BG} stroke={S} strokeWidth={W} strokeLinejoin="round" />
+      <Line x1={-21} y1={-4} x2={-21} y2={4} stroke={S} strokeWidth={W * 0.8} />
+      <Line x1={-28} y1={0} x2={-14} y2={0} stroke={S} strokeWidth={W * 0.8} />
+      <Rect x={14} y={-4} width={14} height={8} fill={BG} stroke={S} strokeWidth={W} strokeLinejoin="round" />
+      <Line x1={21} y1={-4} x2={21} y2={4} stroke={S} strokeWidth={W * 0.8} />
+      <Line x1={14} y1={0} x2={28} y2={0} stroke={S} strokeWidth={W * 0.8} />
+      <Line x1={-14} y1={0} x2={-6} y2={0} stroke={S} strokeWidth={W} />
+      <Line x1={6} y1={0} x2={14} y2={0} stroke={S} strokeWidth={W} />
+      <Rect x={-6} y={-6} width={12} height={12} rx={2} fill={BG} stroke={S} strokeWidth={W} />
+      <Path d="M 0 -6 L 0 -14" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Path d="M -4 -14 Q 0 -17 4 -14" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={0} cy={-18} r={1.5} fill={S} />
+      <Path d="M -5 6 L -8 11 M 5 6 L 8 11" stroke={S} strokeWidth={W} strokeLinecap="round" />
+    </G>
+  );
+}
+
+function Meteor({ x, y, scale = 1 }: DoodleProps) {
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale})`}>
+      <Path
+        d="M -12 -8 C -6 -14, 6 -15, 12 -9 C 16 -4, 14 6, 9 12 C 4 15, -6 14, -12 9 C -15 4, -15 -3, -12 -8 Z"
+        fill={BG}
+        stroke={S}
+        strokeWidth={W}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Circle cx={-4} cy={-5} r={2.5} fill={BG} stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M -6.5 -5 A 2.5 2.5 0 0 1 -2 -7" fill="none" stroke={S} strokeWidth={W * 0.5} />
+      <Circle cx={4} cy={3} r={3.5} fill={BG} stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M 1 2 A 3.5 3.5 0 0 1 6.5 0" fill="none" stroke={S} strokeWidth={W * 0.5} />
+      <Circle cx={-5} cy={5} r={1.8} fill={BG} stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M 6 -6 Q 8 -8 7 -5" fill="none" stroke={S} strokeWidth={W * 0.7} />
+    </G>
+  );
+}
+
+function SpaceRover({ x, y, scale = 1, flip }: DoodleProps) {
+  const f = flip ? -1 : 1;
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale * f}, ${scale})`}>
+      <Line x1={-3} y1={-6} x2={-3} y2={-16} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Rect x={-7} y={-21} width={8} height={5} rx={1} fill={BG} stroke={S} strokeWidth={W} />
+      <Circle cx={-3} cy={-18} r={1} fill={S} />
+      <Rect x={-12} y={-6} width={22} height={12} rx={2} fill={BG} stroke={S} strokeWidth={W} />
+      <Line x1={10} y1={0} x2={6} y2={0} stroke={S} strokeWidth={W} />
+      <Path d="M 5 -6 L 9 -12" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Path d="M 7 -14 Q 9 -16 11 -12" fill="none" stroke={S} strokeWidth={W * 0.8} />
+      <Line x1={-8} y1={6} x2={-11} y2={12} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Line x1={2} y1={6} x2={1} y2={12} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Line x1={6} y1={6} x2={9} y2={12} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={-11} cy={12} r={3} fill={BG} stroke={S} strokeWidth={W} />
+      <Circle cx={1} cy={12} r={3} fill={BG} stroke={S} strokeWidth={W} />
+      <Circle cx={9} cy={12} r={3} fill={BG} stroke={S} strokeWidth={W} />
+    </G>
+  );
+}
+
+function RingedPlanet({ x, y, scale = 1 }: DoodleProps) {
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale}) rotate(15)`}>
+      <Path d="M -34 0 C -34 -8, 34 -8, 34 0" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={0} cy={0} r={15} fill={BG} stroke={S} strokeWidth={W} />
+      <Path d="M -13 -7 Q 0 -4 13 -7" fill="none" stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M -15 0 Q 0 3 15 0" fill="none" stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M -13 7 Q 0 9 13 7" fill="none" stroke={S} strokeWidth={W * 0.8} />
+      <Path d="M -34 0 C -34 8, 34 8, 34 0" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Path d="M -26 0 C -26 5, 26 5, 26 0" fill="none" stroke={S} strokeWidth={W * 0.6} strokeDasharray="3 3" />
+    </G>
+  );
+}
+
+function AlienUFO({ x, y, scale = 1 }: DoodleProps) {
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale})`}>
+      <Ellipse cx={0} cy={4} rx={22} ry={6} fill={BG} stroke={S} strokeWidth={W} />
+      <Path d="M -10 2 C -10 -10, 10 -10, 10 2" fill={BG} stroke={S} strokeWidth={W} />
+      <Circle cx={0} cy={-2} r={3.5} fill={BG} stroke={S} strokeWidth={W * 0.8} />
+      <Line x1={-1.5} y1={-5.5} x2={-3} y2={-8} stroke={S} strokeWidth={W * 0.7} />
+      <Line x1={1.5} y1={-5.5} x2={3} y2={-8} stroke={S} strokeWidth={W * 0.7} />
+      <Circle cx={-12} cy={4} r={1} fill={S} />
+      <Circle cx={0} cy={5} r={1} fill={S} />
+      <Circle cx={12} cy={4} r={1} fill={S} />
+    </G>
+  );
+}
+
+function AstronautHelmet({ x, y, scale = 1, flip }: DoodleProps) {
+  const f = flip ? -1 : 1;
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale * f}, ${scale}) rotate(-10)`}>
+      <Path d="M -12 12 C -10 16, 10 16, 12 12" fill={BG} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={0} cy={1} r={13.5} fill={BG} stroke={S} strokeWidth={W} />
+      <Path d="M -9 -2 C -9 -7, 9 -7, 9 -2 C 9 5, -9 5, -9 -2 Z" fill={BG} stroke={S} strokeWidth={W} strokeLinejoin="round" />
+      <Path d="M -5 -4 L -1 -4" stroke={S} strokeWidth={W * 0.8} strokeLinecap="round" />
+      <Line x1={13.5} y1={1} x2={18} y2={-3} stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Circle cx={18} cy={-3} r={1.5} fill={S} />
+    </G>
+  );
+}
+
+function Fireball({ x, y, scale = 1, flip }: DoodleProps) {
+  const f = flip ? -1 : 1;
+  return (
+    <G transform={`translate(${x}, ${y}) scale(${scale * f}, ${scale}) rotate(-40)`}>
+      <Path d="M -4 2 Q -18 6, -26 0 Q -18 -6, -4 -2" fill="none" stroke={S} strokeWidth={W} strokeLinecap="round" />
+      <Path d="M -2 4 Q -14 9, -22 1 Q -14 -4, -2 -4" fill="none" stroke={S} strokeWidth={W * 0.7} strokeLinecap="round" />
+      <Circle cx={0} cy={0} r={5.5} fill={BG} stroke={S} strokeWidth={W} />
+      <Circle cx={1.5} cy={-1.5} r={1.2} fill={S} />
+    </G>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════
 //  OCEAN DOODLES — inspired by reference image
 // ═══════════════════════════════════════════════════════════════
@@ -709,24 +841,38 @@ type TileEntry = {
 
 // SPACE THEME
 const SPACE_TILE: TileEntry[] = [
-  { C: SaturnBig,     rx: 0.12, ry: 0.05, s: 1.6 },
-  { C: Sparkle,       rx: 0.88, ry: 0.08, s: 1.3 },
-  { C: Rocket,        rx: 0.85, ry: 0.14, s: 1.5, f: true },
-  { C: SmallStar,     rx: 0.15, ry: 0.17, s: 1.3 },
-  { C: Moon,          rx: 0.08, ry: 0.23, s: 1.5 },
-  { C: UFO,           rx: 0.86, ry: 0.28, s: 1.5 },
-  { C: Saturn,        rx: 0.15, ry: 0.35, s: 1.5 },
-  { C: AsteriskStar,  rx: 0.88, ry: 0.38, s: 1.3 },
-  { C: Rocket,        rx: 0.86, ry: 0.44, s: 1.5 },
-  { C: Telescope,     rx: 0.10, ry: 0.50, s: 1.5 },
-  { C: Comet,         rx: 0.84, ry: 0.56, s: 1.4, f: true },
-  { C: SaturnBig,     rx: 0.85, ry: 0.65, s: 1.6 },
-  { C: Sparkle,       rx: 0.12, ry: 0.68, s: 1.2 },
-  { C: Astronaut,     rx: 0.14, ry: 0.74, s: 1.4 },
-  { C: UFO,           rx: 0.86, ry: 0.80, s: 1.5 },
-  { C: Constellation, rx: 0.08, ry: 0.86, s: 1.3 },
-  { C: Saturn,        rx: 0.82, ry: 0.92, s: 1.5 },
-  { C: Alien,         rx: 0.14, ry: 0.96, s: 1.4 },
+  { C: SaturnBig,       rx: 0.12, ry: 0.05, s: 1.6 },
+  { C: Sparkle,         rx: 0.88, ry: 0.08, s: 1.3 },
+  { C: SpiralGalaxy,    rx: 0.38, ry: 0.12, s: 1.3 },
+  { C: Satellite,       rx: 0.62, ry: 0.12, s: 1.2, f: true },
+  { C: Rocket,          rx: 0.85, ry: 0.14, s: 1.5, f: true },
+  { C: SmallStar,       rx: 0.15, ry: 0.17, s: 1.3 },
+  { C: Moon,            rx: 0.08, ry: 0.23, s: 1.5 },
+  { C: AlienUFO,        rx: 0.36, ry: 0.25, s: 1.2 },
+  { C: AstronautHelmet, rx: 0.64, ry: 0.25, s: 1.2 },
+  { C: UFO,             rx: 0.86, ry: 0.28, s: 1.5 },
+  { C: Saturn,          rx: 0.15, ry: 0.35, s: 1.5 },
+  { C: AsteriskStar,    rx: 0.88, ry: 0.38, s: 1.3 },
+  { C: Meteor,          rx: 0.35, ry: 0.38, s: 1.2 },
+  { C: Fireball,        rx: 0.65, ry: 0.38, s: 1.2, f: true },
+  { C: Rocket,          rx: 0.86, ry: 0.44, s: 1.5 },
+  { C: Telescope,       rx: 0.10, ry: 0.50, s: 1.5 },
+  { C: RingedPlanet,    rx: 0.36, ry: 0.52, s: 1.2 },
+  { C: SpaceRover,      rx: 0.64, ry: 0.52, s: 1.2 },
+  { C: Comet,           rx: 0.84, ry: 0.56, s: 1.4, f: true },
+  { C: SaturnBig,       rx: 0.85, ry: 0.65, s: 1.6 },
+  { C: SpiralGalaxy,    rx: 0.38, ry: 0.66, s: 1.3, f: true },
+  { C: Satellite,       rx: 0.62, ry: 0.66, s: 1.2 },
+  { C: Sparkle,         rx: 0.12, ry: 0.68, s: 1.2 },
+  { C: Astronaut,       rx: 0.14, ry: 0.74, s: 1.4 },
+  { C: AlienUFO,        rx: 0.36, ry: 0.78, s: 1.2, f: true },
+  { C: AstronautHelmet, rx: 0.64, ry: 0.78, s: 1.2, f: true },
+  { C: UFO,             rx: 0.86, ry: 0.80, s: 1.5 },
+  { C: Constellation,   rx: 0.08, ry: 0.86, s: 1.3 },
+  { C: Meteor,          rx: 0.35, ry: 0.90, s: 1.2 },
+  { C: Fireball,        rx: 0.65, ry: 0.90, s: 1.2 },
+  { C: Saturn,          rx: 0.82, ry: 0.92, s: 1.5 },
+  { C: Alien,           rx: 0.14, ry: 0.96, s: 1.4 },
 ];
 
 const DOT_STARS = [
@@ -904,6 +1050,10 @@ export default function RoadsideDoodles({
     { x: centerX, y: 70 },
   ];
 
+  // The winding road starts at totalHeight - 120 (PADDING_BOTTOM).
+  // Any coordinate y > roadStartY is below where the road starts.
+  const roadStartY = totalHeight - 120;
+
   function getRoadCenterX(y: number): number {
     if (y >= allPts[0].y) return centerX;
     if (y <= allPts[allPts.length - 1].y) return centerX;
@@ -930,6 +1080,9 @@ export default function RoadsideDoodles({
       const dy = offsetY + entry.ry * TILE_HEIGHT;
 
       if (dy > totalHeight + 40 || dy < -40) continue;
+      
+      // Do not render doodles below where the road starts
+      if (dy > roadStartY) continue;
 
       const roadX = getRoadCenterX(dy);
       if (Math.abs(dx - roadX) < ROAD_HALF) continue;
@@ -952,6 +1105,10 @@ export default function RoadsideDoodles({
         const sx = star.rx * svgWidth;
         const sy = offsetY + star.ry * TILE_HEIGHT;
         if (sy > totalHeight + 10 || sy < -10) continue;
+        
+        // Do not render details below where the road starts
+        if (sy > roadStartY) continue;
+
         const roadX = getRoadCenterX(sy);
         if (Math.abs(sx - roadX) < 42) continue;
         backgroundElements.push(
@@ -964,6 +1121,10 @@ export default function RoadsideDoodles({
         const bx = bubble.rx * svgWidth;
         const by = offsetY + bubble.ry * TILE_HEIGHT;
         if (by > totalHeight + 10 || by < -10) continue;
+        
+        // Do not render details below where the road starts
+        if (by > roadStartY) continue;
+
         const roadX = getRoadCenterX(by);
         if (Math.abs(bx - roadX) < 42) continue;
         backgroundElements.push(
@@ -976,6 +1137,10 @@ export default function RoadsideDoodles({
         const dx = dot.rx * svgWidth;
         const dy = offsetY + dot.ry * TILE_HEIGHT;
         if (dy > totalHeight + 10 || dy < -10) continue;
+        
+        // Do not render details below where the road starts
+        if (dy > roadStartY) continue;
+
         const roadX = getRoadCenterX(dy);
         if (Math.abs(dx - roadX) < 42) continue;
         backgroundElements.push(

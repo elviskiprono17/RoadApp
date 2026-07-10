@@ -8,14 +8,15 @@
     "scheme": "roadapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/expo.icon",
+      "usesAppleSignIn": true,
+      "bundleIdentifier": "com.iamelvisblack.RoadApp"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#FFDE59",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "monochromeImage": "./assets/images/android-icon-foreground.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.iamelvisblack.RoadApp"
@@ -26,6 +27,8 @@
     },
     "plugins": [
       "expo-router",
+      "expo-apple-authentication",
+      "@react-native-google-signin/google-signin",
       [
         "expo-splash-screen",
         {
@@ -35,7 +38,8 @@
             "imageWidth": 76
           }
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -13,27 +13,62 @@ import {
   NativeScrollEvent,
   StatusBar,
   Alert,
+  Easing,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getGoal, updateGoal, archiveGoal } from '@/storage/goalStorage';
 import WindingRoad from '@/components/WindingRoad';
 import HamburgerMenu from '@/components/HamburgerMenu';
+import Confetti from '@/components/Confetti';
 import type { Goal } from '@/types/goal';
+import { useAuth } from '@/context/AuthContext';
+import { playMilestoneSound, playGoalCompleteSound, playProgressSound, playCoinSound } from '@/utils/sounds';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
-// Darker green used across the UI
-const DARK_GREEN = '#1B8A4A';
+// Accent blue used across the UI
+const ACCENT_BLUE = '#2563EB';
 
 export default function RoadmapScreen() {
   const router = useRouter();
+  const { canCreateGoal } = useAuth();
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateValue, setUpdateValue] = useState('');
   const [selectedMilestone, setSelectedMilestone] = useState(-1);
   const [showMenu, setShowMenu] = useState(false);
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Delayed progress: holds the OLD fraction so user can watch the line animate
+  const [displayProgress, setDisplayProgress] = useState<number | null>(null);
+  const progressTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Coin-fly animation state
+  const [showCoinFly, setShowCoinFly] = useState(false);
+  const NUM_COINS = 8;
+  const coinAnims = useRef(
+    Array.from({ length: NUM_COINS }, () => ({
+      translateY: new Animated.Value(0),
+      translateX: new Animated.Value(0),
+      scale: new Animated.Value(0),
+      opacity: new Animated.Value(0),
+    })),
+  ).current;
+  const rootRef = useRef<View>(null);
+  const progressBarRef = useRef<View>(null);
+  const progressBarFlash = useRef(new Animated.Value(0)).current;
+  // Measure the progress bar's position on screen
+  const progressBarY = useRef(110); // Default layout fallback (below status bar)
+  const coinStartY = useRef(SCREEN_HEIGHT * 0.55); // default start from lower-mid screen
+
+  // Delayed header progress: holds the OLD fraction so top progress bar updates only after coins land
+  const [displayHeaderProgress, setDisplayHeaderProgress] = useState<number | null>(null);
+  const headerProgressAnim = useRef(new Animated.Value(0)).current;
 
   // Update button animation
   const buttonTranslateY = useRef(new Animated.Value(0)).current;
@@ -55,7 +90,26 @@ export default function RoadmapScreen() {
     }
     setGoal(g);
     setLoading(false);
+    // Initialize header progress anim value directly
+    const initialPercent = calculateProgressFraction(g) * 100;
+    headerProgressAnim.setValue(initialPercent);
   }
+
+  // Smoothly animate the top progress bar width
+  useEffect(() => {
+    if (goal) {
+      const targetPercent =
+        displayHeaderProgress !== null
+          ? displayHeaderProgress * 100
+          : calculateProgressFraction(goal) * 100;
+
+      Animated.timing(headerProgressAnim, {
+        toValue: targetPercent,
+        duration: displayHeaderProgress !== null ? 0 : 600, // Instant when frozen, animated when released
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [goal, displayHeaderProgress]);
 
   // Scroll to current progress position on first load
   useEffect(() => {
@@ -163,6 +217,104 @@ export default function RoadmapScreen() {
     setShowUpdateModal(true);
   }
 
+  // Trigger the coin-fly animation — stack of coins converge and deposit into progress bar
+  function triggerCoinFly() {
+    // Reset all coin animations
+    coinAnims.forEach((coin) => {
+      coin.translateY.setValue(0);
+      coin.translateX.setValue(0);
+      coin.scale.setValue(0);
+      coin.opacity.setValue(0);
+    });
+    progressBarFlash.setValue(0);
+    setShowCoinFly(true);
+    playCoinSound();
+
+    const animations = coinAnims.map((coin, i) => {
+      // Scatter coins as a cluster/stack at the start around screen center
+      const row = Math.floor(i / 3); // 3 columns, multiple rows
+      const col = i % 3;
+      const startX = (col - 1) * 35 + (Math.random() - 0.5) * 20;
+      const startY = coinStartY.current + row * 25 + (Math.random() - 0.5) * 15;
+
+      coin.translateX.setValue(startX);
+      coin.translateY.setValue(startY);
+
+      const stagger = i * 40;
+
+      return Animated.sequence([
+        Animated.delay(stagger),
+        Animated.parallel([
+          // Phase 1: Fly upward to the progress bar absolute Y position
+          Animated.timing(coin.translateY, {
+            toValue: progressBarY.current,
+            duration: 1000,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+            useNativeDriver: true,
+          }),
+          // Converge horizontally — all coins come to the center (middle) of the progress bar
+          Animated.timing(coin.translateX, {
+            toValue: 0,
+            duration: 1000,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          // Fade in immediately and stay fully visible
+          Animated.timing(coin.opacity, {
+            toValue: 1,
+            duration: 150,
+            useNativeDriver: true,
+          }),
+          // Scale: pop in then gradually shrink as they converge
+          Animated.sequence([
+            Animated.timing(coin.scale, {
+              toValue: 1,
+              duration: 200,
+              easing: Easing.out(Easing.back(1.2)),
+              useNativeDriver: true,
+            }),
+            Animated.timing(coin.scale, {
+              toValue: 0.6,
+              duration: 800,
+              easing: Easing.inOut(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
+        ]),
+        // Phase 2: HOLD at the progress bar so user can see the deposit
+        Animated.delay(400),
+        // Phase 3: Fade out as they merge into the bar
+        Animated.timing(coin.opacity, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+      ]);
+    });
+
+    Animated.parallel(animations).start(() => {
+      // Release the top progress bar to animate to the new value now that coins have arrived!
+      setDisplayHeaderProgress(null);
+
+      // Flash the progress bar to show the deposit landed
+      Animated.sequence([
+        Animated.timing(progressBarFlash, {
+          toValue: 1,
+          duration: 250,
+          useNativeDriver: false,
+        }),
+        Animated.delay(300),
+        Animated.timing(progressBarFlash, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: false,
+        }),
+      ]).start(() => {
+        setShowCoinFly(false);
+      });
+    });
+  }
+
   async function handleNumericalUpdate() {
     if (!goal) return;
     const newValue = parseFloat(updateValue);
@@ -170,6 +322,9 @@ export default function RoadmapScreen() {
       Alert.alert('Invalid', 'Please enter a valid number.');
       return;
     }
+
+    // Snapshot old progress before updating
+    const oldFraction = calculateProgressFraction(goal);
 
     const clampedValue = Math.min(newValue, goal.targetValue || newValue);
     const updatedGoal: Goal = {
@@ -181,14 +336,47 @@ export default function RoadmapScreen() {
       })),
     };
 
+    // Count newly completed milestones
+    const prevCompleted = goal.milestones.filter((m) => m.completed).length;
+    const newCompleted = updatedGoal.milestones.filter((m) => m.completed).length;
+
     await updateGoal(updatedGoal);
-    setGoal(updatedGoal);
     setShowUpdateModal(false);
 
-    // Auto-archive if goal is now complete
+    // Freeze progress at old value, then animate to new
+    setDisplayProgress(oldFraction);
+    setDisplayHeaderProgress(oldFraction);
+    setGoal(updatedGoal);
+
     const isNowComplete = clampedValue >= (goal.targetValue || 0);
+
+    // Play sound and animate after a short delay
+    setTimeout(() => {
+      playProgressSound();
+      setDisplayProgress(null); // releases to real value → line animates
+
+      // Play milestone sound for each newly completed milestone EXCEPT if the goal is complete
+      if (newCompleted > prevCompleted && !isNowComplete) {
+        setTimeout(() => playMilestoneSound(), 400);
+      }
+    }, 800);
+
+    // Trigger coin-fly after the road line finishes animating
+    setTimeout(() => {
+      triggerCoinFly();
+    }, 2000);
+
+    // Auto-archive if goal is now complete
     if (isNowComplete) {
-      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      setTimeout(() => {
+        playGoalCompleteSound();
+      }, 3600);
+      setTimeout(() => {
+        setShowConfetti(true);
+      }, 4200);
+      setTimeout(async () => {
+        await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      }, 7200);
     }
   }
 
@@ -198,6 +386,9 @@ export default function RoadmapScreen() {
     // Find the first incomplete milestone
     const nextIndex = goal.milestones.findIndex((m) => !m.completed);
     if (nextIndex === -1) return; // All done
+
+    // Snapshot old progress
+    const oldFraction = calculateProgressFraction(goal);
 
     const updatedMilestones = [...goal.milestones];
     updatedMilestones[nextIndex] = {
@@ -217,18 +408,48 @@ export default function RoadmapScreen() {
     };
 
     await updateGoal(updatedGoal);
-    setGoal(updatedGoal);
     setShowUpdateModal(false);
+
+    // Freeze progress then animate
+    setDisplayProgress(oldFraction);
+    setDisplayHeaderProgress(oldFraction);
+    setGoal(updatedGoal);
 
     // Auto-archive if all milestones are now complete
     const isNowComplete = updatedMilestones.every((m) => m.completed);
+
+    setTimeout(() => {
+      playProgressSound();
+      setDisplayProgress(null);
+      if (!isNowComplete) {
+        setTimeout(() => playMilestoneSound(), 400);
+      }
+    }, 800);
+
+    // Trigger coin-fly after the road line finishes animating
+    setTimeout(() => {
+      triggerCoinFly();
+    }, 2000);
+
     if (isNowComplete) {
-      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      setTimeout(() => {
+        playGoalCompleteSound();
+      }, 3600);
+      setTimeout(() => {
+        setShowConfetti(true);
+      }, 4200);
+      setTimeout(async () => {
+        await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      }, 7200);
     }
   }
 
   async function handleToggleSubMilestone(milestoneIndex: number, subIndex: number) {
     if (!goal) return;
+
+    // Snapshot old progress
+    const oldFraction = calculateProgressFraction(goal);
+    const prevCompleted = goal.milestones.filter((m) => m.completed).length;
 
     const updatedMilestones = goal.milestones.map((m, i) => {
       if (i !== milestoneIndex) return m;
@@ -256,13 +477,42 @@ export default function RoadmapScreen() {
     };
 
     await updateGoal(updatedGoal);
+
+    // Freeze and animate progress
+    setDisplayProgress(oldFraction);
+    setDisplayHeaderProgress(oldFraction);
     setGoal(updatedGoal);
 
-    // Auto-archive if all milestones are now complete
+    const newCompleted = updatedMilestones.filter((m) => m.completed).length;
     const isNowComplete = updatedMilestones.every((m) => m.completed);
+
+    setTimeout(() => {
+      playProgressSound();
+      setDisplayProgress(null);
+
+      // If a milestone just completed via all subs being checked EXCEPT if the goal is complete
+      if (newCompleted > prevCompleted && !isNowComplete) {
+        setTimeout(() => playMilestoneSound(), 400);
+      }
+    }, 800);
+
+    // Trigger coin-fly after the road line finishes animating
+    setTimeout(() => {
+      triggerCoinFly();
+    }, 2000);
+
+    // Auto-archive if all milestones are now complete
     if (isNowComplete) {
       setShowUpdateModal(false);
-      await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      setTimeout(() => {
+        playGoalCompleteSound();
+      }, 3600);
+      setTimeout(() => {
+        setShowConfetti(true);
+      }, 4200);
+      setTimeout(async () => {
+        await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+      }, 7200);
     }
   }
 
@@ -303,7 +553,7 @@ export default function RoadmapScreen() {
   })();
 
   return (
-    <View style={styles.container}>
+    <View ref={rootRef} style={styles.container}>
       <StatusBar barStyle="light-content" />
 
       {/* ── Header ── */}
@@ -329,11 +579,42 @@ export default function RoadmapScreen() {
         </View>
 
         {/* Progress bar */}
-        <View style={styles.progressBarBg}>
-          <View
+        <View
+          ref={progressBarRef}
+          collapsable={false}
+          style={styles.progressBarBg}
+          onLayout={() => {
+            progressBarRef.current?.measureLayout(
+              rootRef.current as any,
+              (_x: number, y: number) => {
+                if (y > 0) progressBarY.current = y + 2; // Center vertically on progress bar
+              },
+              () => console.log('measureLayout error')
+            );
+          }}
+        >
+          <Animated.View
             style={[
               styles.progressBarFill,
-              { width: `${headerProgressPercent}%` },
+              {
+                width: headerProgressAnim.interpolate({
+                  inputRange: [0, 100],
+                  outputRange: ['0%', '100%'],
+                }),
+              },
+            ]}
+          />
+          {/* Flash glow when coins deposit */}
+          <Animated.View
+            style={[
+              styles.progressBarGlow,
+              {
+                width: headerProgressAnim.interpolate({
+                  inputRange: [0, 100],
+                  outputRange: ['0%', '100%'],
+                }),
+                opacity: progressBarFlash,
+              },
             ]}
           />
         </View>
@@ -351,7 +632,8 @@ export default function RoadmapScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
-        scrollEventThrottle={16}
+        scrollEventThrottle={32}
+        decelerationRate="normal"
       >
         <WindingRoad
           goal={goal}
@@ -359,7 +641,7 @@ export default function RoadmapScreen() {
           onMilestonePress={(i) =>
             setSelectedMilestone(selectedMilestone === i ? -1 : i)
           }
-          progressFraction={calculateProgressFraction(goal)}
+          progressFraction={displayProgress ?? calculateProgressFraction(goal)}
         />
       </ScrollView>
 
@@ -396,9 +678,13 @@ export default function RoadmapScreen() {
         animationType="slide"
         onRequestClose={() => setShowUpdateModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Update Progress</Text>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Update Progress</Text>
 
             {goal.type === 'numerical' ? (
               <>
@@ -517,6 +803,7 @@ export default function RoadmapScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ── Hamburger Menu Drawer ── */}
@@ -530,8 +817,44 @@ export default function RoadmapScreen() {
         }}
         onNewGoalPress={() => {
           setShowMenu(false);
-          router.push('/create' as Href);
+          if (!canCreateGoal) {
+            router.push('/paywall' as Href);
+          } else {
+            router.push('/create' as Href);
+          }
         }}
+      />
+
+      {/* ── Coin-fly animation overlay ── */}
+      {showCoinFly && (
+        <View style={styles.coinFlyContainer} pointerEvents="none">
+          {coinAnims.map((coin, i) => (
+            <Animated.View
+              key={`coin-${i}`}
+              style={[
+                styles.coin,
+                {
+                  transform: [
+                    { translateY: coin.translateY },
+                    { translateX: coin.translateX },
+                    { scale: coin.scale },
+                  ],
+                  opacity: coin.opacity,
+                },
+              ]}
+            >
+              <View style={styles.coinInner}>
+                <Text style={styles.coinSymbol}>¢</Text>
+              </View>
+            </Animated.View>
+          ))}
+        </View>
+      )}
+
+      {/* ── Confetti overlay ── */}
+      <Confetti
+        visible={showConfetti}
+        onComplete={() => setShowConfetti(false)}
       />
     </View>
   );
@@ -590,8 +913,16 @@ const styles = StyleSheet.create({
   },
   progressBarFill: {
     height: '100%',
-    backgroundColor: DARK_GREEN,
+    backgroundColor: '#F5C518',
     borderRadius: 2,
+  },
+  progressBarGlow: {
+    position: 'absolute',
+    top: -2,
+    left: 0,
+    bottom: -2,
+    backgroundColor: 'rgba(245, 197, 24, 0.6)',
+    borderRadius: 4,
   },
   progressText: {
     fontSize: 12,
@@ -618,7 +949,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   updateButton: {
-    backgroundColor: DARK_GREEN,
+    backgroundColor: '#2563EB',
     paddingHorizontal: 48,
     paddingVertical: 16,
     borderRadius: 30,
@@ -693,7 +1024,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   modalButton: {
-    backgroundColor: DARK_GREEN,
+    backgroundColor: ACCENT_BLUE,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
@@ -734,7 +1065,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   completeButton: {
-    backgroundColor: DARK_GREEN,
+    backgroundColor: ACCENT_BLUE,
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -783,8 +1114,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   subCheckboxChecked: {
-    backgroundColor: DARK_GREEN,
-    borderColor: DARK_GREEN,
+    backgroundColor: ACCENT_BLUE,
+    borderColor: ACCENT_BLUE,
   },
   subCheckmark: {
     color: '#FFFFFF',
@@ -799,5 +1130,44 @@ const styles = StyleSheet.create({
   subChecklistLabelDone: {
     color: 'rgba(255,255,255,0.4)',
     textDecorationLine: 'line-through',
+  },
+
+  // Coin-fly animation
+  coinFlyContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
+  coin: {
+    position: 'absolute',
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  coinInner: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#F5C518',
+    borderWidth: 2.5,
+    borderColor: '#C9A000',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#F5C518',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  coinSymbol: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#8B6914',
+    marginTop: -1,
   },
 });

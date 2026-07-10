@@ -13,7 +13,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useRouter, type Href } from 'expo-router';
 import type { Goal } from '../types/goal';
+import { useAuth } from '../context/AuthContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.82;
@@ -33,6 +35,8 @@ export default function HamburgerMenu({
   onHistoryPress,
   onNewGoalPress,
 }: HamburgerMenuProps) {
+  const router = useRouter();
+  const { user, profile, isPremium, signOut: authSignOut } = useAuth();
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const [feedbackText, setFeedbackText] = useState('');
@@ -86,65 +90,7 @@ export default function HamburgerMenu({
 
   if (!isRendered) return null;
 
-  // ─── History data ────────────────────────────────────────
-  let historyContent = null;
-  if (goal) {
-    const createdDate = new Date(goal.createdAt).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-    const completedCount =
-      goal.type === 'numerical'
-        ? goal.milestones.filter(
-            (m) => m.value !== undefined && goal.currentValue >= m.value,
-          ).length
-        : goal.milestones.filter((m) => m.completed).length;
 
-    const totalMilestones = goal.milestones.length;
-    const percentage = Math.round((completedCount / totalMilestones) * 100);
-
-    historyContent = (
-      <View style={styles.historyContent}>
-        <View style={styles.historyRow}>
-          <Text style={styles.historyLabel}>Goal</Text>
-          <Text style={styles.historyValue} numberOfLines={1}>
-            {goal.title}
-          </Text>
-        </View>
-        <View style={styles.historyRow}>
-          <Text style={styles.historyLabel}>Started</Text>
-          <Text style={styles.historyValue}>{createdDate}</Text>
-        </View>
-        <View style={styles.historyRow}>
-          <Text style={styles.historyLabel}>Progress</Text>
-          <Text style={styles.historyValue}>
-            {completedCount} / {totalMilestones} milestones
-          </Text>
-        </View>
-        {goal.type === 'numerical' && (
-          <View style={styles.historyRow}>
-            <Text style={styles.historyLabel}>Value</Text>
-            <Text style={styles.historyValue}>
-              {goal.unit || ''}
-              {goal.currentValue.toLocaleString()} / {goal.unit || ''}
-              {(goal.targetValue || 0).toLocaleString()}
-            </Text>
-          </View>
-        )}
-        {/* Mini progress bar */}
-        <View style={styles.miniProgressBg}>
-          <View
-            style={[
-              styles.miniProgressFill,
-              { width: `${Math.min(100, percentage)}%` },
-            ]}
-          />
-        </View>
-        <Text style={styles.percentageText}>{percentage}% complete</Text>
-      </View>
-    );
-  }
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -183,33 +129,72 @@ export default function HamburgerMenu({
               </TouchableOpacity>
             </View>
 
+            {/* ═══ USER PROFILE ═══ */}
+            <View style={styles.profileCard}>
+              <View style={styles.profileAvatar}>
+                <Text style={styles.profileAvatarText}>
+                  {(profile?.display_name || user?.email || '?')[0].toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={styles.profileName} numberOfLines={1}>
+                  {profile?.display_name || 'User'}
+                </Text>
+                <Text style={styles.profileEmail} numberOfLines={1}>
+                  {user?.email || ''}
+                </Text>
+              </View>
+              <View style={[
+                styles.tierBadge,
+                isPremium && styles.tierBadgePremium,
+              ]}>
+                <Text style={[
+                  styles.tierBadgeText,
+                  isPremium && styles.tierBadgeTextPremium,
+                ]}>
+                  {isPremium ? '⭐ PRO' : 'FREE'}
+                </Text>
+              </View>
+            </View>
+
+            {!isPremium && (
+              <TouchableOpacity
+                style={styles.upgradeButton}
+                onPress={() => {
+                  onClose();
+                  router.push('/paywall' as Href);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.upgradeEmoji}>👑</Text>
+                <Text style={styles.upgradeText}>Upgrade to Premium</Text>
+                <Text style={styles.chevron}>›</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.divider} />
+
             {/* ═══ NEW GOAL BUTTON ═══ */}
             <TouchableOpacity
               style={styles.newGoalButton}
               onPress={onNewGoalPress}
               activeOpacity={0.7}
             >
-              <Text style={styles.newGoalEmoji}>🚀</Text>
+              <Text style={styles.newGoalEmoji}>✨</Text>
               <Text style={styles.newGoalText}>New Goal</Text>
               <Text style={styles.chevron}>›</Text>
             </TouchableOpacity>
 
             <View style={styles.divider} />
 
-            {/* ═══ HISTORY SECTION (Clickable) ═══ */}
+            {/* ═══ HISTORY BUTTON ═══ */}
             <TouchableOpacity
-              style={styles.section}
+              style={styles.historyButton}
               onPress={onHistoryPress}
               activeOpacity={0.7}
             >
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionEmoji}>📜</Text>
-                <Text style={styles.sectionTitle}>History</Text>
-                <Text style={styles.chevron}>›</Text>
-              </View>
-              {historyContent || (
-                <Text style={styles.emptyText}>No goal created yet</Text>
-              )}
+              <Text style={styles.sectionTitle}>History</Text>
+              <Text style={styles.chevron}>›</Text>
             </TouchableOpacity>
 
             <View style={styles.divider} />
@@ -245,6 +230,37 @@ export default function HamburgerMenu({
                 </Text>
               </TouchableOpacity>
             </View>
+
+            <View style={styles.divider} />
+
+            {/* ═══ SIGN OUT ═══ */}
+            <TouchableOpacity
+              style={styles.signOutButton}
+              onPress={() => {
+                Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+                  { text: 'Cancel', style: 'cancel' },
+                  {
+                    text: 'Sign Out',
+                    style: 'destructive',
+                    onPress: async () => {
+                      onClose();
+                      try {
+                        await authSignOut();
+                      } catch (e) {
+                        console.error('Sign out error:', e);
+                      }
+                      // Navigate to index which has the auth guard —
+                      // it detects user=null and redirects to login.
+                      router.replace('/' as Href);
+                    },
+                  },
+                ]);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.signOutEmoji}>🚪</Text>
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </TouchableOpacity>
 
             <View style={{ height: 40 }} />
           </ScrollView>
@@ -344,50 +360,13 @@ const styles = StyleSheet.create({
     marginVertical: 16,
   },
 
-  // History
-  historyContent: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  historyRow: {
+  // History button
+  historyButton: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
-  },
-  historyLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: '500',
-  },
-  historyValue: {
-    fontSize: 13,
-    color: '#FFFFFF',
-    fontWeight: '600',
-    maxWidth: '60%',
-    textAlign: 'right',
-  },
-  miniProgressBg: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 3,
-    overflow: 'hidden',
-    marginTop: 4,
-  },
-  miniProgressFill: {
-    height: '100%',
-    backgroundColor: '#1B8A4A',
-    borderRadius: 3,
-  },
-  percentageText: {
-    fontSize: 12,
-    color: 'rgba(27,138,74,0.8)',
-    marginTop: 6,
-    fontWeight: '600',
-    textAlign: 'right',
+    padding: 14,
+    gap: 10,
+    marginBottom: 8,
   },
 
   // New Goal button
@@ -442,5 +421,101 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#1a1a2e',
+  },
+
+  // Profile card
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    gap: 10,
+  },
+  profileAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(245,197,24,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileAvatarText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#F5C518',
+  },
+  profileInfo: {
+    flex: 1,
+  },
+  profileName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  profileEmail: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  tierBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  tierBadgePremium: {
+    backgroundColor: 'rgba(245,197,24,0.15)',
+  },
+  tierBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: 'rgba(255,255,255,0.5)',
+    letterSpacing: 1,
+  },
+  tierBadgeTextPremium: {
+    color: '#F5C518',
+  },
+
+  // Upgrade button
+  upgradeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,197,24,0.06)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,24,0.12)',
+    gap: 10,
+    marginBottom: 4,
+  },
+  upgradeEmoji: {
+    fontSize: 18,
+  },
+  upgradeText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#F5C518',
+    flex: 1,
+  },
+
+  // Sign out
+  signOutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 10,
+    marginTop: 4,
+  },
+  signOutEmoji: {
+    fontSize: 18,
+  },
+  signOutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
   },
 });

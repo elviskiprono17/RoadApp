@@ -10,7 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   getGoal,
@@ -19,9 +19,11 @@ import {
 } from '@/storage/goalStorage';
 import { generateId, generateNumericalMilestones } from '@/types/goal';
 import type { Goal } from '@/types/goal';
+import { useAuth } from '@/context/AuthContext';
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const { user, profile, isPremium, isTrialActive, trialDaysLeft } = useAuth();
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -340,6 +342,61 @@ export default function SettingsScreen() {
             </View>
           )}
 
+          {/* ── Account ── */}
+          <View style={styles.accountSection}>
+            <Text style={styles.accountTitle}>Account</Text>
+
+            <View style={styles.accountCard}>
+              <View style={styles.accountRow}>
+                <Text style={styles.accountLabel}>Email</Text>
+                <Text style={styles.accountValue} numberOfLines={1}>
+                  {user?.email || '—'}
+                </Text>
+              </View>
+              <View style={styles.accountDivider} />
+              <View style={styles.accountRow}>
+                <Text style={styles.accountLabel}>Plan</Text>
+                <View style={[
+                  styles.planBadge,
+                  isPremium && styles.planBadgePremium,
+                ]}>
+                  <Text style={[
+                    styles.planBadgeText,
+                    isPremium && styles.planBadgeTextPremium,
+                  ]}>
+                    {isPremium ? '⭐ Premium' : 'Free'}
+                  </Text>
+                </View>
+              </View>
+              {!isPremium && (
+                <>
+                  <View style={styles.accountDivider} />
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>Trial</Text>
+                    <Text style={[
+                      styles.accountValue,
+                      !isTrialActive && styles.accountValueExpired,
+                    ]}>
+                      {isTrialActive
+                        ? `${trialDaysLeft} day${trialDaysLeft !== 1 ? 's' : ''} left`
+                        : 'Expired'}
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+
+            {!isPremium && (
+              <TouchableOpacity
+                style={styles.upgradeSettingsButton}
+                onPress={() => router.push('/paywall' as Href)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.upgradeSettingsText}>Upgrade to Premium 👑</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
           {/* ── Danger zone ── */}
           <View style={styles.dangerZone}>
             <Text style={styles.dangerTitle}>Danger Zone</Text>
@@ -578,5 +635,85 @@ const styles = StyleSheet.create({
   },
   deleteText: {
     color: '#FF1744',
+  },
+
+  // Account section
+  accountSection: {
+    marginTop: 32,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    paddingTop: 20,
+  },
+  accountTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  accountCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  accountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  accountDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginVertical: 10,
+  },
+  accountLabel: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+    fontWeight: '500',
+  },
+  accountValue: {
+    fontSize: 14,
+    color: '#FFFFFF',
+    fontWeight: '600',
+    maxWidth: '60%',
+    textAlign: 'right',
+  },
+  accountValueExpired: {
+    color: '#FF6B6B',
+  },
+  planBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  planBadgePremium: {
+    backgroundColor: 'rgba(245,197,24,0.15)',
+  },
+  planBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  planBadgeTextPremium: {
+    color: '#F5C518',
+  },
+  upgradeSettingsButton: {
+    backgroundColor: 'rgba(245,197,24,0.08)',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,24,0.15)',
+  },
+  upgradeSettingsText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F5C518',
   },
 });
