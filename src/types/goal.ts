@@ -24,6 +24,10 @@ export interface Goal {
   currentValue: number;
   /** Unit label for numerical goals (e.g., "$", "kg") */
   unit?: string;
+  /** Starting weight for weight-based goals (kg/lbs) */
+  startWeight?: number;
+  /** Target weight for weight-based goals (kg/lbs) */
+  targetWeight?: number;
   /** Ordered list of milestones */
   milestones: Milestone[];
   createdAt: string;

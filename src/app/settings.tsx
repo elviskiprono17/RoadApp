@@ -9,6 +9,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Modal,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,10 +21,21 @@ import {
 import { generateId, generateNumericalMilestones } from '@/types/goal';
 import type { Goal } from '@/types/goal';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
+import { supabase } from '@/lib/supabase';
+import {
+  scheduleReminders,
+  getNotificationTimes,
+  saveNotificationTimes,
+  formatTime,
+  type NotificationTime,
+  DEFAULT_TIMES,
+} from '@/utils/notifications';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, profile, isPremium, isTrialActive, trialDaysLeft } = useAuth();
+  const { user, profile, isTrialActive, trialDaysLeft } = useAuth();
+  const { isPremium } = useSubscription();
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,9 +45,25 @@ export default function SettingsScreen() {
   const [unit, setUnit] = useState('');
   const [milestoneLabels, setMilestoneLabels] = useState<string[]>([]);
 
+  // Notification settings
+  const [notifFrequency, setNotifFrequency] = useState<'daily' | 'weekly'>(
+    (profile?.reminder_frequency as 'daily' | 'weekly') || 'daily',
+  );
+  const [notifTimes, setNotifTimes] = useState<NotificationTime[]>(DEFAULT_TIMES);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const [editingTimeIndex, setEditingTimeIndex] = useState<number | null>(null);
+  const [tempHour, setTempHour] = useState(9);
+  const [tempMinute, setTempMinute] = useState(0);
+
   useEffect(() => {
     loadGoal();
+    loadNotificationSettings();
   }, []);
+
+  async function loadNotificationSettings() {
+    const times = await getNotificationTimes();
+    setNotifTimes(times);
+  }
 
   async function loadGoal() {
     const g = await getGoal();
@@ -397,6 +425,269 @@ export default function SettingsScreen() {
             )}
           </View>
 
+          {/* ── Notifications ── */}
+          <View style={styles.notifSection}>
+            <Text style={styles.notifSectionTitle}>Notifications</Text>
+
+            {/* Frequency toggle */}
+            <Text style={styles.notifLabel}>Reminder Frequency</Text>
+            <View style={styles.notifFreqRow}>
+              {(['daily', 'weekly'] as const).map((freq) => (
+                <TouchableOpacity
+                  key={freq}
+                  style={[
+                    styles.notifFreqChip,
+                    notifFrequency === freq && styles.notifFreqChipActive,
+                  ]}
+                  onPress={async () => {
+                    setNotifFrequency(freq);
+                    // Update Supabase
+                    if (user) {
+                      await supabase
+                        .from('profiles')
+                        .update({
+                          reminder_frequency: freq,
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', user.id);
+                    }
+                    // Reschedule
+                    await scheduleReminders(freq, goal?.title);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.notifFreqIcon}>
+                    {freq === 'daily' ? '🔔' : '📆'}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.notifFreqText,
+                      notifFrequency === freq && styles.notifFreqTextActive,
+                    ]}
+                  >
+                    {freq === 'daily' ? 'Daily' : 'Weekly'}
+                  </Text>
+                  {notifFrequency === freq && (
+                    <View style={styles.notifFreqCheck}>
+                      <Text style={styles.notifFreqCheckText}>✓</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Notification times */}
+            <Text style={[styles.notifLabel, { marginTop: 20 }]}>Reminder Times</Text>
+            <View style={styles.notifTimesCard}>
+              {notifTimes.map((time, index) => (
+                <View key={index}>
+                  {index > 0 && <View style={styles.notifTimeDivider} />}
+                  <View style={styles.notifTimeRow}>
+                    <View style={styles.notifTimeLeft}>
+                      <Text style={styles.notifTimeIcon}>
+                        {time.hour < 12 ? '🌅' : time.hour < 17 ? '☀️' : '🌙'}
+                      </Text>
+                      <View>
+                        <Text style={styles.notifTimeValue}>{formatTime(time)}</Text>
+                        <Text style={styles.notifTimeLabel}>
+                          {time.hour < 12 ? 'Morning' : time.hour < 17 ? 'Afternoon' : 'Evening'}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.notifTimeActions}>
+                      <TouchableOpacity
+                        style={styles.notifTimeEditBtn}
+                        onPress={() => {
+                          setEditingTimeIndex(index);
+                          setTempHour(time.hour);
+                          setTempMinute(time.minute);
+                          setShowTimePicker(true);
+                        }}
+                      >
+                        <Text style={styles.notifTimeEditText}>Edit</Text>
+                      </TouchableOpacity>
+                      {notifTimes.length > 1 && (
+                        <TouchableOpacity
+                          style={styles.notifTimeRemoveBtn}
+                          onPress={async () => {
+                            const updated = notifTimes.filter((_, i) => i !== index);
+                            setNotifTimes(updated);
+                            await saveNotificationTimes(updated);
+                            await scheduleReminders(notifFrequency, goal?.title);
+                          }}
+                        >
+                          <Text style={styles.notifTimeRemoveText}>✕</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            {notifTimes.length < 4 && (
+              <TouchableOpacity
+                style={styles.notifAddTimeBtn}
+                onPress={() => {
+                  setEditingTimeIndex(null);
+                  setTempHour(12);
+                  setTempMinute(0);
+                  setShowTimePicker(true);
+                }}
+              >
+                <Text style={styles.notifAddTimeText}>+ Add Reminder Time</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.notifInfoBox}>
+              <Text style={styles.notifInfoText}>
+                💡 You'll also receive random motivational check-ins between your scheduled times.
+              </Text>
+            </View>
+          </View>
+
+          {/* ── Time Picker Modal ── */}
+          <Modal
+            visible={showTimePicker}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowTimePicker(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>
+                  {editingTimeIndex !== null ? 'Edit Reminder Time' : 'Add Reminder Time'}
+                </Text>
+
+                <View style={styles.timePickerRow}>
+                  {/* Hour */}
+                  <View style={styles.timePickerCol}>
+                    <Text style={styles.timePickerLabel}>Hour</Text>
+                    <View style={styles.timePickerControls}>
+                      <TouchableOpacity
+                        style={styles.timePickerBtn}
+                        onPress={() => setTempHour((h) => (h + 1) % 24)}
+                      >
+                        <Text style={styles.timePickerBtnText}>▲</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.timePickerValue}>
+                        {(tempHour % 12 || 12).toString()}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.timePickerBtn}
+                        onPress={() => setTempHour((h) => (h - 1 + 24) % 24)}
+                      >
+                        <Text style={styles.timePickerBtnText}>▼</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  <Text style={styles.timePickerColon}>:</Text>
+
+                  {/* Minute */}
+                  <View style={styles.timePickerCol}>
+                    <Text style={styles.timePickerLabel}>Min</Text>
+                    <View style={styles.timePickerControls}>
+                      <TouchableOpacity
+                        style={styles.timePickerBtn}
+                        onPress={() => setTempMinute((m) => (m + 5) % 60)}
+                      >
+                        <Text style={styles.timePickerBtnText}>▲</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.timePickerValue}>
+                        {tempMinute.toString().padStart(2, '0')}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.timePickerBtn}
+                        onPress={() => setTempMinute((m) => (m - 5 + 60) % 60)}
+                      >
+                        <Text style={styles.timePickerBtnText}>▼</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* AM/PM */}
+                  <View style={styles.timePickerCol}>
+                    <Text style={styles.timePickerLabel}> </Text>
+                    <View style={styles.timePickerControls}>
+                      <TouchableOpacity
+                        style={[
+                          styles.ampmBtn,
+                          tempHour < 12 && styles.ampmBtnActive,
+                        ]}
+                        onPress={() => {
+                          if (tempHour >= 12) setTempHour(tempHour - 12);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.ampmText,
+                            tempHour < 12 && styles.ampmTextActive,
+                          ]}
+                        >
+                          AM
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.ampmBtn,
+                          tempHour >= 12 && styles.ampmBtnActive,
+                        ]}
+                        onPress={() => {
+                          if (tempHour < 12) setTempHour(tempHour + 12);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.ampmText,
+                            tempHour >= 12 && styles.ampmTextActive,
+                          ]}
+                        >
+                          PM
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={styles.timePreview}>
+                  {formatTime({ hour: tempHour, minute: tempMinute })}
+                </Text>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={styles.modalCancelBtn}
+                    onPress={() => setShowTimePicker(false)}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalSaveBtn}
+                    onPress={async () => {
+                      const newTime = { hour: tempHour, minute: tempMinute };
+                      let updated: NotificationTime[];
+                      if (editingTimeIndex !== null) {
+                        updated = notifTimes.map((t, i) =>
+                          i === editingTimeIndex ? newTime : t,
+                        );
+                      } else {
+                        updated = [...notifTimes, newTime];
+                      }
+                      // Sort by time
+                      updated.sort((a, b) => a.hour * 60 + a.minute - (b.hour * 60 + b.minute));
+                      setNotifTimes(updated);
+                      await saveNotificationTimes(updated);
+                      await scheduleReminders(notifFrequency, goal?.title);
+                      setShowTimePicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalSaveText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
           {/* ── Danger zone ── */}
           <View style={styles.dangerZone}>
             <Text style={styles.dangerTitle}>Danger Zone</Text>
@@ -715,5 +1006,305 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#F5C518',
+  },
+
+  // ─── Notification settings ─────────────────────────────────
+  notifSection: {
+    marginTop: 32,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    paddingTop: 20,
+  },
+  notifSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 14,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  notifLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.7)',
+    marginBottom: 10,
+  },
+  notifFreqRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  notifFreqChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.06)',
+    gap: 10,
+  },
+  notifFreqChipActive: {
+    borderColor: '#F5C518',
+    backgroundColor: 'rgba(245,197,24,0.06)',
+    shadowColor: '#F5C518',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  notifFreqIcon: {
+    fontSize: 20,
+  },
+  notifFreqText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  notifFreqTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  notifFreqCheck: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F5C518',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notifFreqCheckText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1a1a2e',
+  },
+  notifTimesCard: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 16,
+    padding: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  notifTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  notifTimeDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    marginHorizontal: 14,
+  },
+  notifTimeLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notifTimeIcon: {
+    fontSize: 24,
+  },
+  notifTimeValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  notifTimeLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  notifTimeActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  notifTimeEditBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(245,197,24,0.1)',
+  },
+  notifTimeEditText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#F5C518',
+  },
+  notifTimeRemoveBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255,23,68,0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notifTimeRemoveText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FF1744',
+  },
+  notifAddTimeBtn: {
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  notifAddTimeText: {
+    color: 'rgba(255,255,255,0.35)',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  notifInfoBox: {
+    backgroundColor: 'rgba(245,197,24,0.06)',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,24,0.1)',
+  },
+  notifInfoText: {
+    fontSize: 13,
+    color: 'rgba(245,197,24,0.7)',
+    lineHeight: 18,
+  },
+
+  // ─── Time Picker Modal ─────────────────────────────────────
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: '#16213e',
+    borderRadius: 24,
+    padding: 28,
+    width: '100%',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  timePickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  timePickerCol: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  timePickerLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  timePickerControls: {
+    alignItems: 'center',
+    gap: 6,
+  },
+  timePickerBtn: {
+    width: 48,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  timePickerBtnText: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.6)',
+    fontWeight: '700',
+  },
+  timePickerValue: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    minWidth: 48,
+    textAlign: 'center',
+  },
+  timePickerColon: {
+    fontSize: 32,
+    fontWeight: '900',
+    color: 'rgba(255,255,255,0.3)',
+    marginTop: 20,
+  },
+  ampmBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  ampmBtnActive: {
+    borderColor: '#F5C518',
+    backgroundColor: 'rgba(245,197,24,0.1)',
+  },
+  ampmText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'rgba(255,255,255,0.4)',
+  },
+  ampmTextActive: {
+    color: '#F5C518',
+  },
+  timePreview: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.5)',
+  },
+  modalSaveBtn: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 14,
+    backgroundColor: '#F5C518',
+    alignItems: 'center',
+    shadowColor: '#F5C518',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  modalSaveText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1a1a2e',
   },
 });

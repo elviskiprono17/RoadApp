@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { signIn, signInWithGoogle, signInWithApple } = useAuth();
+  const { signIn, signInWithGoogle, signInWithApple, profile } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -59,7 +59,12 @@ export default function LoginScreen() {
       return;
     }
 
-    router.replace('/' as Href);
+    // Route to onboarding if not completed, otherwise home
+    if (!profile?.onboarding_completed) {
+      router.replace('/(onboarding)/questions' as Href);
+    } else {
+      router.replace('/' as Href);
+    }
   }
 
   // ─── Social sign-in handlers ────────────────────────────
@@ -73,7 +78,12 @@ export default function LoginScreen() {
       return;
     }
 
-    router.replace('/' as Href);
+    // Route to onboarding if not completed, otherwise home
+    if (!profile?.onboarding_completed) {
+      router.replace('/(onboarding)/questions' as Href);
+    } else {
+      router.replace('/' as Href);
+    }
   }
 
   async function handleAppleSignIn() {
@@ -86,7 +96,12 @@ export default function LoginScreen() {
       return;
     }
 
-    router.replace('/' as Href);
+    // Route to onboarding if not completed, otherwise home
+    if (!profile?.onboarding_completed) {
+      router.replace('/(onboarding)/questions' as Href);
+    } else {
+      router.replace('/' as Href);
+    }
   }
 
   const isAnyLoading = loading || socialLoading !== null;

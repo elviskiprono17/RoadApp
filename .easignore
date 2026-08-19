@@ -1,0 +1,43 @@
+# EAS Build ignore file
+# This overrides .gitignore for EAS Build uploads.
+# We need .env to be uploaded for EXPO_PUBLIC_* env vars.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native directories - MUST be excluded so EAS runs fresh prebuild (CNG)
+# If these are uploaded, EAS skips prebuild and uses stale native code!
+/android
+/ios
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# typescript
+*.tsbuildinfo
+
+example
+
+# NOTE: .env is intentionally NOT excluded here.
+# EAS Build needs it for EXPO_PUBLIC_* environment variables.

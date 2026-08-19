@@ -18,6 +18,8 @@ export async function saveGoal(goal: Goal): Promise<void> {
       target_value: goal.targetValue ?? null,
       current_value: goal.currentValue,
       unit: goal.unit ?? null,
+      start_weight: goal.startWeight ?? null,
+      target_weight: goal.targetWeight ?? null,
       milestones: goal.milestones,
       is_active: true,
     })
@@ -79,6 +81,8 @@ export async function updateGoal(goal: Goal): Promise<void> {
       target_value: goal.targetValue ?? null,
       current_value: goal.currentValue,
       unit: goal.unit ?? null,
+      start_weight: goal.startWeight ?? null,
+      target_weight: goal.targetWeight ?? null,
       milestones: goal.milestones,
     })
     .eq('id', goal.id);
@@ -167,6 +171,8 @@ function mapRowToGoal(row: Record<string, unknown>): Goal {
     targetValue: row.target_value != null ? Number(row.target_value) : undefined,
     currentValue: Number(row.current_value ?? 0),
     unit: (row.unit as string) ?? undefined,
+    startWeight: row.start_weight != null ? Number(row.start_weight) : undefined,
+    targetWeight: row.target_weight != null ? Number(row.target_weight) : undefined,
     milestones: (row.milestones as Goal['milestones']) ?? [],
     createdAt: row.created_at as string,
     completedAt: (row.completed_at as string) ?? undefined,

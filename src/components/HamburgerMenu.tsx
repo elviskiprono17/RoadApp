@@ -16,6 +16,7 @@ import {
 import { useRouter, type Href } from 'expo-router';
 import type { Goal } from '../types/goal';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const DRAWER_WIDTH = SCREEN_WIDTH * 0.82;
@@ -36,7 +37,8 @@ export default function HamburgerMenu({
   onNewGoalPress,
 }: HamburgerMenuProps) {
   const router = useRouter();
-  const { user, profile, isPremium, signOut: authSignOut } = useAuth();
+  const { user, profile, signOut: authSignOut } = useAuth();
+  const { isPremium } = useSubscription();
   const slideAnim = useRef(new Animated.Value(-DRAWER_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const [feedbackText, setFeedbackText] = useState('');

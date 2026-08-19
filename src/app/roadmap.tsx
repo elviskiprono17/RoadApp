@@ -25,6 +25,7 @@ import HamburgerMenu from '@/components/HamburgerMenu';
 import Confetti from '@/components/Confetti';
 import type { Goal } from '@/types/goal';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { playMilestoneSound, playGoalCompleteSound, playProgressSound, playCoinSound } from '@/utils/sounds';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -35,7 +36,7 @@ const ACCENT_BLUE = '#2563EB';
 
 export default function RoadmapScreen() {
   const router = useRouter();
-  const { canCreateGoal } = useAuth();
+  const { canCreateGoal } = useSubscription();
   const [goal, setGoal] = useState<Goal | null>(null);
   const [loading, setLoading] = useState(true);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
@@ -207,12 +208,22 @@ export default function RoadmapScreen() {
     return Math.min(1, totalProgress / numMilestones);
   }
 
-  // ─── Update handlers ────────────────────────────────────
+  // Helper to classify unit type
+  function getUnitCategory(u?: string): 'monetary' | 'weight' | 'distance' | 'time' | 'other' {
+    if (!u) return 'other';
+    if (['$', '€', '£'].includes(u)) return 'monetary';
+    if (['kg', 'lbs'].includes(u)) return 'weight';
+    if (['km', 'mi'].includes(u)) return 'distance';
+    if (['hrs'].includes(u)) return 'time';
+    return 'other';
+  }
+
+  // ── Update handlers ────────────────────────────────────
   function openUpdateModal() {
     if (!goal) return;
 
     if (goal.type === 'numerical') {
-      setUpdateValue(goal.currentValue.toString());
+      setUpdateValue(''); // Always start empty — user enters incremental or current weight
     }
     setShowUpdateModal(true);
   }
@@ -317,16 +328,40 @@ export default function RoadmapScreen() {
 
   async function handleNumericalUpdate() {
     if (!goal) return;
-    const newValue = parseFloat(updateValue);
-    if (isNaN(newValue) || newValue < 0) {
+    const inputValue = parseFloat(updateValue);
+    if (isNaN(inputValue) || inputValue < 0) {
       Alert.alert('Invalid', 'Please enter a valid number.');
       return;
+    }
+
+    const category = getUnitCategory(goal.unit);
+    let newCurrentValue: number;
+
+    if (category === 'weight') {
+      // Weight goal: user enters their current weight
+      // Progress = how far they've moved from startWeight toward targetWeight
+      if (goal.startWeight == null || goal.targetWeight == null) {
+        Alert.alert('Error', 'Weight goal is missing start/target weight data.');
+        return;
+      }
+      if (inputValue <= 0) {
+        Alert.alert('Invalid', 'Please enter a valid weight.');
+        return;
+      }
+      newCurrentValue = Math.abs(goal.startWeight - inputValue);
+    } else {
+      // Monetary, distance, time, other: additive input
+      if (inputValue <= 0) {
+        Alert.alert('Invalid', 'Please enter an amount greater than 0.');
+        return;
+      }
+      newCurrentValue = goal.currentValue + inputValue;
     }
 
     // Snapshot old progress before updating
     const oldFraction = calculateProgressFraction(goal);
 
-    const clampedValue = Math.min(newValue, goal.targetValue || newValue);
+    const clampedValue = Math.min(newCurrentValue, goal.targetValue || newCurrentValue);
     const updatedGoal: Goal = {
       ...goal,
       currentValue: clampedValue,
@@ -376,6 +411,7 @@ export default function RoadmapScreen() {
       }, 4200);
       setTimeout(async () => {
         await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+        router.replace('/' as Href);
       }, 7200);
     }
   }
@@ -440,6 +476,7 @@ export default function RoadmapScreen() {
       }, 4200);
       setTimeout(async () => {
         await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+        router.replace('/' as Href);
       }, 7200);
     }
   }
@@ -512,6 +549,7 @@ export default function RoadmapScreen() {
       }, 4200);
       setTimeout(async () => {
         await archiveGoal({ ...updatedGoal, completedAt: new Date().toISOString() });
+        router.replace('/' as Href);
       }, 7200);
     }
   }
@@ -687,26 +725,68 @@ export default function RoadmapScreen() {
               <Text style={styles.modalTitle}>Update Progress</Text>
 
             {goal.type === 'numerical' ? (
-              <>
-                <Text style={styles.modalLabel}>
-                  Current value ({goal.unit || ''})
-                </Text>
-                <TextInput
-                  style={styles.modalInput}
-                  value={updateValue}
-                  onChangeText={setUpdateValue}
-                  keyboardType="numeric"
-                  placeholder={`e.g. ${Math.round((goal.targetValue || 0) / 2)}`}
-                  placeholderTextColor="rgba(255,255,255,0.3)"
-                  autoFocus
-                />
-                <TouchableOpacity
-                  style={styles.modalButton}
-                  onPress={handleNumericalUpdate}
-                >
-                  <Text style={styles.modalButtonText}>Save</Text>
-                </TouchableOpacity>
-              </>
+              (() => {
+                const category = getUnitCategory(goal.unit);
+                const isWeight = category === 'weight';
+
+                // Build smart label and placeholder
+                let inputLabel = '';
+                let placeholder = '';
+                let progressSummary = '';
+
+                if (isWeight) {
+                  const direction = (goal.targetWeight ?? 0) > (goal.startWeight ?? 0) ? 'gaining' : 'losing';
+                  inputLabel = `Current weight (${goal.unit})`;
+                  placeholder = `e.g. ${goal.unit === 'kg' ? '78' : '172'}`;
+                  progressSummary = `${direction === 'losing' ? '📉' : '📈'} Started: ${goal.startWeight} ${goal.unit} → Target: ${goal.targetWeight} ${goal.unit}\nProgress: ${goal.currentValue.toLocaleString()} ${goal.unit} ${direction === 'losing' ? 'lost' : 'gained'} of ${(goal.targetValue || 0).toLocaleString()} ${goal.unit}`;
+                } else if (category === 'monetary') {
+                  inputLabel = `Amount earned (${goal.unit})`;
+                  placeholder = 'e.g. 10000';
+                  progressSummary = `💰 Total so far: ${goal.unit}${goal.currentValue.toLocaleString()} / ${goal.unit}${(goal.targetValue || 0).toLocaleString()}`;
+                } else if (category === 'distance') {
+                  inputLabel = `Distance covered (${goal.unit})`;
+                  placeholder = 'e.g. 5';
+                  progressSummary = `🏃 Total so far: ${goal.currentValue.toLocaleString()} ${goal.unit} / ${(goal.targetValue || 0).toLocaleString()} ${goal.unit}`;
+                } else if (category === 'time') {
+                  inputLabel = `Hours completed`;
+                  placeholder = 'e.g. 2';
+                  progressSummary = `⏱ Total so far: ${goal.currentValue.toLocaleString()} hrs / ${(goal.targetValue || 0).toLocaleString()} hrs`;
+                } else {
+                  inputLabel = `Amount to add`;
+                  placeholder = 'e.g. 10';
+                  progressSummary = `Progress: ${goal.currentValue.toLocaleString()} / ${(goal.targetValue || 0).toLocaleString()}`;
+                }
+
+                return (
+                  <>
+                    {/* Progress summary */}
+                    <View style={styles.progressSummaryBox}>
+                      <Text style={styles.progressSummaryText}>
+                        {progressSummary}
+                      </Text>
+                    </View>
+
+                    <Text style={styles.modalLabel}>
+                      {inputLabel}
+                    </Text>
+                    <TextInput
+                      style={styles.modalInput}
+                      value={updateValue}
+                      onChangeText={setUpdateValue}
+                      keyboardType="numeric"
+                      placeholder={placeholder}
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                      autoFocus
+                    />
+                    <TouchableOpacity
+                      style={styles.modalButton}
+                      onPress={handleNumericalUpdate}
+                    >
+                      <Text style={styles.modalButtonText}>Save</Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()
             ) : (
               <>
                 {currentMilestone ? (
@@ -817,6 +897,13 @@ export default function RoadmapScreen() {
         }}
         onNewGoalPress={() => {
           setShowMenu(false);
+          if (!isGoalComplete) {
+            Alert.alert(
+              'Goal In Progress',
+              'You still have an active goal. Complete it first before starting a new one!',
+            );
+            return;
+          }
           if (!canCreateGoal) {
             router.push('/paywall' as Href);
           } else {
@@ -1022,6 +1109,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
     marginBottom: 20,
+  },
+  progressSummaryBox: {
+    backgroundColor: 'rgba(245,197,24,0.08)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(245,197,24,0.15)',
+  },
+  progressSummaryText: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    lineHeight: 20,
   },
   modalButton: {
     backgroundColor: ACCENT_BLUE,

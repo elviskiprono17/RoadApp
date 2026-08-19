@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Session, User } from '@supabase/supabase-js';
+import { scheduleReminders } from '@/utils/notifications';
 
-/** Free trial duration in milliseconds (30 days) */
-const TRIAL_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+/** Free trial duration in milliseconds (14 days) */
+const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000;
 
 // ─── Lazy loaders for native social-auth modules ─────────
 // These modules crash on import in Expo Go because they need
@@ -39,8 +40,20 @@ export interface Profile {
   display_name: string | null;
   total_goals_created: number;
   account_tier: 'free' | 'premium';
+  onboarding_completed: boolean;
+  goal_focus: string | null;
+  tracking_preference: string | null;
+  biggest_challenge: string | null;
+  reminder_frequency: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface OnboardingAnswers {
+  goalFocus: string;
+  trackingPreference: string;
+  biggestChallenge: string;
+  reminderFrequency: string;
 }
 
 interface AuthContextType {
@@ -48,16 +61,16 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   isLoading: boolean;
-  isPremium: boolean;
   isTrialActive: boolean;
   trialDaysLeft: number;
-  canCreateGoal: boolean;
+  onboardingCompleted: boolean;
   signUp: (email: string, password: string, displayName: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signInWithApple: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  completeOnboarding: (answers: OnboardingAnswers) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -65,16 +78,16 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   profile: null,
   isLoading: true,
-  isPremium: false,
   isTrialActive: true,
-  trialDaysLeft: 30,
-  canCreateGoal: true,
+  trialDaysLeft: 14,
+  onboardingCompleted: false,
   signUp: async () => ({ error: null }),
   signIn: async () => ({ error: null }),
   signInWithGoogle: async () => ({ error: null }),
   signInWithApple: async () => ({ error: null }),
   signOut: async () => {},
   refreshProfile: async () => {},
+  completeOnboarding: async () => {},
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -83,11 +96,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const isPremium = profile?.account_tier === 'premium';
+
+  const onboardingCompleted = profile?.onboarding_completed ?? false;
 
   // ─── Trial logic ─────────────────────────────────────────
   const trialInfo = (() => {
-    if (!profile) return { isTrialActive: true, trialDaysLeft: 30 };
+    if (!profile) return { isTrialActive: true, trialDaysLeft: 14 };
     const createdAt = new Date(profile.created_at).getTime();
     const now = Date.now();
     const elapsed = now - createdAt;
@@ -99,8 +113,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   })();
 
-  // User can create goals if they are premium OR still in their free trial
-  const canCreateGoal = isPremium || trialInfo.isTrialActive;
 
   // ─── Load profile ────────────────────────────────────────
   async function loadProfile(userId: string) {
@@ -124,11 +136,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ─── Session listener ────────────────────────────────────
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: s } }) => {
+    supabase.auth.getSession().then(async ({ data: { session: s } }) => {
       setSession(s);
       setUser(s?.user ?? null);
       if (s?.user) {
-        loadProfile(s.user.id);
+        await loadProfile(s.user.id);
       }
       setIsLoading(false);
     });
@@ -148,6 +160,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  // ─── Re-schedule notifications on profile load ────────────
+  useEffect(() => {
+    if (profile?.onboarding_completed && profile.reminder_frequency) {
+      scheduleReminders(profile.reminder_frequency).catch((e) =>
+        console.error('Failed to re-schedule notifications:', e),
+      );
+    }
+  }, [profile?.id, profile?.reminder_frequency]);
 
   // ─── Auth methods ────────────────────────────────────────
   async function signUp(
@@ -288,6 +309,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // ─── Complete onboarding ─────────────────────────────────
+  async function completeOnboarding(answers: OnboardingAnswers) {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        onboarding_completed: true,
+        goal_focus: answers.goalFocus,
+        tracking_preference: answers.trackingPreference,
+        biggest_challenge: answers.biggestChallenge,
+        reminder_frequency: answers.reminderFrequency,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', user.id);
+
+    if (error) {
+      console.error('Error completing onboarding:', error.message);
+      return;
+    }
+
+    // Refresh profile to pick up the changes
+    await loadProfile(user.id);
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -295,16 +341,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         profile,
         isLoading,
-        isPremium,
         isTrialActive: trialInfo.isTrialActive,
         trialDaysLeft: trialInfo.trialDaysLeft,
-        canCreateGoal,
+        onboardingCompleted,
         signUp,
         signIn,
         signInWithGoogle,
         signInWithApple,
         signOut,
         refreshProfile,
+        completeOnboarding,
       }}
     >
       {children}

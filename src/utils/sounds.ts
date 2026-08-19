@@ -1,14 +1,15 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-import { Platform, Image } from 'react-native';
+import { Platform } from 'react-native';
 
 /**
  * Feedback utility for RoadApp.
  *
  * Uses expo-haptics for tactile feedback on iOS/Android,
- * and expo-audio for sound playback.
+ * the browser's native Audio API for sound on web,
+ * and expo-audio for sound on native platforms.
  */
 
-// Lazy-load haptics to avoid crashes if native module isn't available
+// ─── Haptics ─────────────────────────────────────────────
 function getHaptics() {
   if (Platform.OS === 'web') return null;
   try {
@@ -18,115 +19,118 @@ function getHaptics() {
   }
 }
 
-// Lazy-loaded audio players
-let milestonePlayer: any = null;
-let hoorayPlayer: any = null;
-let coinPlayer: any = null;
+// ─── Asset requires (static so Metro can resolve them) ───
+const MILESTONE_ASSET = require('../../assets/sounds/milestone.mp3');
+const HOORAY_ASSET = require('../../assets/sounds/woohoo.mp3');
+const COIN_ASSET = require('../../assets/sounds/coin.mp3');
+
+// ─── Web audio (uses browser's native HTMLAudioElement) ───
+const webPlayers: Record<string, HTMLAudioElement> = {};
+
+function getAssetUri(assetModule: any): string | null {
+  // On web, require() for assets returns a string (the URL) directly
+  if (typeof assetModule === 'string') {
+    return assetModule;
+  }
+  // Sometimes it's a number (asset ID) — try resolving via Image
+  if (typeof assetModule === 'number') {
+    try {
+      const { Image } = require('react-native');
+      const resolved = Image.resolveAssetSource(assetModule);
+      if (resolved?.uri) return resolved.uri;
+    } catch {
+      // fall through
+    }
+  }
+  // Could be an object with a uri property
+  if (assetModule && typeof assetModule === 'object' && assetModule.uri) {
+    return assetModule.uri;
+  }
+  // Could be default export
+  if (assetModule && typeof assetModule === 'object' && assetModule.default) {
+    return getAssetUri(assetModule.default);
+  }
+  return null;
+}
+
+function playWebAudio(key: string, assetModule: any) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (!webPlayers[key]) {
+      const uri = getAssetUri(assetModule);
+      console.log(`[Sound] Resolving "${key}":`, typeof assetModule, assetModule, '→', uri);
+      if (!uri) {
+        console.warn(`[Sound] Could not resolve URI for "${key}"`);
+        return;
+      }
+      webPlayers[key] = new window.Audio(uri);
+    }
+    const audio = webPlayers[key];
+    audio.currentTime = 0;
+    audio.play().catch((err) => {
+      console.warn(`[Sound] Browser blocked playback for "${key}":`, err);
+    });
+  } catch (e) {
+    console.warn(`[Sound] Error in playWebAudio for "${key}":`, e);
+  }
+}
+
+// ─── Native audio (uses expo-audio) ──────────────────────
+const nativePlayers: Record<string, any> = {};
 let audioModeConfigured = false;
 
 function ensureAudioModeConfigured() {
-  if (audioModeConfigured) return;
+  if (audioModeConfigured || Platform.OS === 'web') return;
   try {
     const { setAudioModeAsync } = require('expo-audio');
-    setAudioModeAsync({
-      playsInSilentMode: true,
-    }).catch((err: any) => {
-      console.warn('Failed to set audio mode playsInSilentMode:', err);
-    });
+    setAudioModeAsync({ playsInSilentMode: true }).catch(() => {});
     audioModeConfigured = true;
   } catch {
     // ignore
   }
 }
 
-function getAudioSource(assetRequire: any) {
+function playNativeAudio(key: string, assetModule: any) {
+  if (Platform.OS === 'web') return;
+
+  ensureAudioModeConfigured();
   try {
-    const resolved = Image.resolveAssetSource(assetRequire);
-    if (resolved && resolved.uri) {
-      let uri = resolved.uri;
-      if (Platform.OS === 'web' && uri.startsWith('/')) {
-        if (typeof window !== 'undefined') {
-          uri = window.location.origin + uri;
-        }
-      }
-      return { uri };
-    }
-  } catch (e) {
-    console.warn('Failed to resolve asset source:', e);
-  }
-  return assetRequire;
-}
-
-function getMilestonePlayer() {
-  ensureAudioModeConfigured();
-  if (!milestonePlayer) {
-    try {
+    if (!nativePlayers[key]) {
       const { createAudioPlayer } = require('expo-audio');
-      const source = getAudioSource(require('../../../assets/sounds/milestone.mp3'));
-      milestonePlayer = createAudioPlayer(source);
-    } catch (e) {
-      console.warn('Failed to load milestone audio player:', e);
+      nativePlayers[key] = createAudioPlayer(assetModule);
     }
-  }
-  return milestonePlayer;
-}
-
-function getHoorayPlayer() {
-  ensureAudioModeConfigured();
-  if (!hoorayPlayer) {
-    try {
-      const { createAudioPlayer } = require('expo-audio');
-      const source = getAudioSource(require('../../../assets/sounds/hooray.mp3'));
-      hoorayPlayer = createAudioPlayer(source);
-    } catch (e) {
-      console.warn('Failed to load hooray audio player:', e);
-    }
-  }
-  return hoorayPlayer;
-}
-
-function getCoinPlayer() {
-  ensureAudioModeConfigured();
-  if (!coinPlayer) {
-    try {
-      const { createAudioPlayer } = require('expo-audio');
-      const source = getAudioSource(require('../../../assets/sounds/coin.wav'));
-      coinPlayer = createAudioPlayer(source);
-    } catch (e) {
-      console.warn('Failed to load coin audio player:', e);
-    }
-  }
-  return coinPlayer;
-}
-
-/** Play coin clink sound when coins fly */
-export function playCoinSound() {
-  try {
-    const player = getCoinPlayer();
+    const player = nativePlayers[key];
     if (player) {
       player.seekTo(0);
       player.play();
     }
   } catch (e) {
-    console.warn('Failed to play coin audio:', e);
+    console.warn(`[Sound] Failed to play native audio [${key}]:`, e);
   }
+}
+
+// ─── Unified play function ───────────────────────────────
+function playSound(key: string, assetModule: any) {
+  if (Platform.OS === 'web') {
+    playWebAudio(key, assetModule);
+  } else {
+    playNativeAudio(key, assetModule);
+  }
+}
+
+// ─── Public API ──────────────────────────────────────────
+
+/** Play coin clink sound when coins fly */
+export function playCoinSound() {
+  playSound('coin', COIN_ASSET);
 }
 
 /** Play milestone completed sound and haptics */
 export function playMilestoneSound() {
-  try {
-    // 1. Play audio chime
-    const player = getMilestonePlayer();
-    if (player) {
-      player.seekTo(0);
-      player.play();
-    }
-  } catch (e) {
-    console.warn('Failed to play milestone audio:', e);
-  }
+  playSound('milestone', MILESTONE_ASSET);
 
   try {
-    // 2. Play haptics
     const Haptics = getHaptics();
     Haptics?.notificationAsync(Haptics.NotificationFeedbackType.Success);
   } catch {
@@ -136,19 +140,9 @@ export function playMilestoneSound() {
 
 /** Play goal completed (hooray/confetti) sound and haptics */
 export function playGoalCompleteSound() {
-  try {
-    // 1. Play celebratory hooray sound
-    const player = getHoorayPlayer();
-    if (player) {
-      player.seekTo(0);
-      player.play();
-    }
-  } catch (e) {
-    console.warn('Failed to play hooray audio:', e);
-  }
+  playSound('hooray', HOORAY_ASSET);
 
   try {
-    // 2. Play haptics
     const Haptics = getHaptics();
     // Heavy impact for the big celebration moment
     Haptics?.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -170,4 +164,3 @@ export function playProgressSound() {
     // silently fail
   }
 }
-

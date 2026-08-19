@@ -11,8 +11,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
+import type { PurchasesPackage } from '@/lib/revenuecat';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -20,10 +20,21 @@ type Plan = 'monthly' | 'yearly';
 
 export default function PaywallScreen() {
   const router = useRouter();
-  const { user, refreshProfile } = useAuth();
+  const { offerings, purchasePackage, restorePurchases } = useSubscription();
 
   const [selectedPlan, setSelectedPlan] = useState<Plan>('yearly');
   const [loading, setLoading] = useState(false);
+  const [restoreLoading, setRestoreLoading] = useState(false);
+
+  // ─── Resolve packages from RevenueCat offerings ───────────
+  const monthlyPackage: PurchasesPackage | undefined =
+    offerings?.availablePackages?.find((p) => p.packageType === 'MONTHLY');
+  const yearlyPackage: PurchasesPackage | undefined =
+    offerings?.availablePackages?.find((p) => p.packageType === 'ANNUAL');
+
+  // Use real store prices if available, fallback to defaults
+  const monthlyPrice = monthlyPackage?.product?.priceString ?? '$2.99';
+  const yearlyPrice = yearlyPackage?.product?.priceString ?? '$35.88';
 
   // ─── Animated entrance ──────────────────────────────────
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -77,68 +88,53 @@ export default function PaywallScreen() {
     ]).start();
   }, []);
 
-  // ─── Subscribe handler ──────────────────────────────────
+  // ─── Subscribe handler (RevenueCat) ─────────────────────
   async function handleSubscribe() {
-    if (!user) {
-      Alert.alert('Not Logged In', 'Please log in to subscribe.');
+    const pkg = selectedPlan === 'monthly' ? monthlyPackage : yearlyPackage;
+    if (!pkg) {
+      Alert.alert('Not Available', 'This subscription is not available yet. Please try again later.');
       return;
     }
 
     setLoading(true);
-
     try {
-      const plan = selectedPlan;
-      const priceCents = plan === 'monthly' ? 299 : 3588;
-      const expiresAt = new Date();
-      if (plan === 'monthly') {
-        expiresAt.setMonth(expiresAt.getMonth() + 1);
-      } else {
-        expiresAt.setFullYear(expiresAt.getFullYear() + 1);
+      const success = await purchasePackage(pkg);
+      if (success) {
+        Alert.alert(
+          '🎉 Welcome to Premium!',
+          'You now have unlimited access to all RoadApp features.',
+          [{ text: "Let's Go", onPress: () => router.back() }],
+        );
       }
-
-      const { error: subError } = await supabase.from('subscriptions').insert({
-        user_id: user.id,
-        plan,
-        price_cents: priceCents,
-        expires_at: expiresAt.toISOString(),
-      });
-
-      if (subError) {
-        Alert.alert('Error', subError.message);
-        setLoading(false);
-        return;
-      }
-
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({ account_tier: 'premium', updated_at: new Date().toISOString() })
-        .eq('id', user.id);
-
-      if (profileError) {
-        Alert.alert('Error', profileError.message);
-        setLoading(false);
-        return;
-      }
-
-      await refreshProfile();
+    } catch (e: any) {
+      Alert.alert('Purchase Error', e.message ?? 'Something went wrong. Please try again.');
+    } finally {
       setLoading(false);
-
-      Alert.alert(
-        '🎉 Welcome to Premium!',
-        'You now have unlimited access to all RoadApp features.',
-        [{ text: 'Let\'s Go', onPress: () => router.back() }],
-      );
-    } catch (_e) {
-      setLoading(false);
-      Alert.alert('Error', 'Something went wrong. Please try again.');
     }
   }
 
-  function handleRestore() {
-    Alert.alert(
-      'Restore Purchase',
-      'If you previously subscribed, your access will be restored automatically when you sign in with the same account.',
-    );
+  // ─── Restore handler (RevenueCat) ───────────────────────
+  async function handleRestore() {
+    setRestoreLoading(true);
+    try {
+      const restored = await restorePurchases();
+      if (restored) {
+        Alert.alert(
+          '✅ Restored!',
+          'Your premium access has been restored.',
+          [{ text: 'OK', onPress: () => router.back() }],
+        );
+      } else {
+        Alert.alert(
+          'No Purchases Found',
+          'We could not find any previous subscriptions for this account.',
+        );
+      }
+    } catch (e: any) {
+      Alert.alert('Restore Error', e.message ?? 'Something went wrong.');
+    } finally {
+      setRestoreLoading(false);
+    }
   }
 
   return (
@@ -194,7 +190,7 @@ export default function PaywallScreen() {
                 <View style={styles.selectedDot} />
               )}
               <Text style={[styles.planLabel, selectedPlan === 'monthly' && styles.planLabelSelected]}>Monthly</Text>
-              <Text style={[styles.planPrice, selectedPlan === 'monthly' && styles.planPriceSelected]}>$2.99</Text>
+              <Text style={[styles.planPrice, selectedPlan === 'monthly' && styles.planPriceSelected]}>{monthlyPrice}</Text>
               <Text style={styles.planPeriod}>per month</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -213,7 +209,7 @@ export default function PaywallScreen() {
                 <View style={styles.selectedDot} />
               )}
               <Text style={[styles.planLabel, selectedPlan === 'yearly' && styles.planLabelSelected]}>Yearly</Text>
-              <Text style={[styles.planPrice, selectedPlan === 'yearly' && styles.planPriceSelected]}>$35.88</Text>
+              <Text style={[styles.planPrice, selectedPlan === 'yearly' && styles.planPriceSelected]}>{yearlyPrice}</Text>
               <Text style={styles.planPeriod}>per year</Text>
             </TouchableOpacity>
           </Animated.View>
@@ -248,14 +244,14 @@ export default function PaywallScreen() {
           <TouchableOpacity
             style={[styles.subscribeButton, loading && styles.subscribeButtonDisabled]}
             onPress={handleSubscribe}
-            disabled={loading}
+            disabled={loading || restoreLoading}
             activeOpacity={0.85}
           >
             {loading ? (
               <ActivityIndicator color="#1a1a2e" size="small" />
             ) : (
               <Text style={styles.subscribeButtonText}>
-                Subscribe — {selectedPlan === 'monthly' ? '$2.99/mo' : '$35.88/yr'}
+                Subscribe — {selectedPlan === 'monthly' ? monthlyPrice + '/mo' : yearlyPrice + '/yr'}
               </Text>
             )}
           </TouchableOpacity>
@@ -265,9 +261,14 @@ export default function PaywallScreen() {
         <TouchableOpacity
           style={styles.restoreButton}
           onPress={handleRestore}
+          disabled={loading || restoreLoading}
           activeOpacity={0.6}
         >
-          <Text style={styles.restoreText}>Restore Purchase</Text>
+          {restoreLoading ? (
+            <ActivityIndicator color="rgba(255,255,255,0.35)" size="small" />
+          ) : (
+            <Text style={styles.restoreText}>Restore Purchase</Text>
+          )}
         </TouchableOpacity>
       </Animated.View>
     </SafeAreaView>

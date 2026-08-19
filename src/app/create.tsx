@@ -9,10 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Keyboard,
 } from 'react-native';
 import { useRouter, type Href } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { saveGoal } from '@/storage/goalStorage';
+import { saveGoal, getGoal } from '@/storage/goalStorage';
 import {
   generateId,
   generateNumericalMilestones,
@@ -21,6 +22,7 @@ import {
   type SubMilestone,
 } from '@/types/goal';
 import { useAuth } from '@/context/AuthContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 
 type GoalType = 'numerical' | 'custom';
 
@@ -32,7 +34,9 @@ interface CustomMilestoneData {
 
 export default function CreateScreen() {
   const router = useRouter();
-  const { canCreateGoal, refreshProfile } = useAuth();
+  const { refreshProfile } = useAuth();
+  const { canCreateGoal } = useSubscription();
+  const [hasActiveGoal, setHasActiveGoal] = useState(true);
 
   // Guard: redirect to paywall if free limit hit
   useEffect(() => {
@@ -41,10 +45,23 @@ export default function CreateScreen() {
     }
   }, [canCreateGoal]);
 
+  // Check if there's an active goal to go back to
+  useEffect(() => {
+    (async () => {
+      const goal = await getGoal();
+      setHasActiveGoal(!!goal);
+    })();
+  }, []);
+
   const [title, setTitle] = useState('');
   const [goalType, setGoalType] = useState<GoalType>('numerical');
   const [targetValue, setTargetValue] = useState('');
   const [unit, setUnit] = useState('$');
+  const [currentWeight, setCurrentWeight] = useState('');
+  const [goalWeight, setGoalWeight] = useState('');
+
+  // Detect weight-based units
+  const isWeightUnit = unit === 'kg' || unit === 'lbs';
 
   // Custom milestones (start with 5 empty, each with sub-milestone support)
   const [customMilestones, setCustomMilestones] = useState<CustomMilestoneData[]>(
@@ -133,29 +150,73 @@ export default function CreateScreen() {
       Alert.alert('Missing Title', 'Please give your goal a name.');
       return;
     }
+    Keyboard.dismiss();
 
     try {
       if (goalType === 'numerical') {
-        const target = parseFloat(targetValue);
-        if (isNaN(target) || target <= 0) {
-          Alert.alert('Invalid Target', 'Please enter a valid target number.');
-          return;
+        if (isWeightUnit) {
+          // Weight goal: validate current weight and goal weight
+          const startW = parseFloat(currentWeight);
+          const targetW = parseFloat(goalWeight);
+          console.log('[Create] Weight goal — unit:', unit, 'startW:', startW, 'targetW:', targetW);
+          if (isNaN(startW) || startW <= 0) {
+            Alert.alert('Invalid', 'Please enter a valid current weight.');
+            return;
+          }
+          if (isNaN(targetW) || targetW <= 0) {
+            Alert.alert('Invalid', 'Please enter a valid target weight.');
+            return;
+          }
+          if (startW === targetW) {
+            Alert.alert('Invalid', 'Current weight and target weight cannot be the same.');
+            return;
+          }
+
+          const totalDelta = Math.abs(targetW - startW);
+          console.log('[Create] Weight goal — totalDelta:', totalDelta);
+
+          const goal: Goal = {
+            id: generateId(),
+            title: title.trim(),
+            type: 'numerical',
+            targetValue: totalDelta,
+            currentValue: 0,
+            unit: unit.trim(),
+            startWeight: startW,
+            targetWeight: targetW,
+            milestones: generateNumericalMilestones(totalDelta, unit.trim()),
+            createdAt: new Date().toISOString(),
+          };
+
+          console.log('[Create] Saving weight goal…');
+          await saveGoal(goal);
+          console.log('[Create] Weight goal saved, refreshing profile…');
+          await refreshProfile();
+          console.log('[Create] Navigating to roadmap…');
+          router.replace('/roadmap' as Href);
+        } else {
+          // Non-weight numerical goal
+          const target = parseFloat(targetValue);
+          if (isNaN(target) || target <= 0) {
+            Alert.alert('Invalid Target', 'Please enter a valid target number.');
+            return;
+          }
+
+          const goal: Goal = {
+            id: generateId(),
+            title: title.trim(),
+            type: 'numerical',
+            targetValue: target,
+            currentValue: 0,
+            unit: unit.trim(),
+            milestones: generateNumericalMilestones(target, unit.trim()),
+            createdAt: new Date().toISOString(),
+          };
+
+          await saveGoal(goal);
+          await refreshProfile();
+          router.replace('/roadmap' as Href);
         }
-
-        const goal: Goal = {
-          id: generateId(), // placeholder — Supabase generates real UUID
-          title: title.trim(),
-          type: 'numerical',
-          targetValue: target,
-          currentValue: 0,
-          unit: unit.trim(),
-          milestones: generateNumericalMilestones(target, unit.trim()),
-          createdAt: new Date().toISOString(),
-        };
-
-        await saveGoal(goal);
-        await refreshProfile();
-        router.replace('/roadmap' as Href);
       } else {
         // Custom goal
         const validMilestones = customMilestones.filter((m) => m.label.trim());
@@ -197,6 +258,7 @@ export default function CreateScreen() {
         router.replace('/roadmap' as Href);
       }
     } catch (e: unknown) {
+      console.error('[Create] Error creating goal:', e);
       const message = e instanceof Error ? e.message : 'Something went wrong saving your goal.';
       Alert.alert('Error', message);
     }
@@ -210,7 +272,13 @@ export default function CreateScreen() {
       <SafeAreaView edges={['top']} style={styles.safeTop}>
         <View style={styles.headerRow}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={() => {
+              if (hasActiveGoal) {
+                router.back();
+              } else {
+                router.replace('/' as Href);
+              }
+            }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
             <Text style={styles.backButton}>← Back</Text>
@@ -222,7 +290,7 @@ export default function CreateScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <ScrollView
           style={styles.scrollView}
@@ -290,16 +358,6 @@ export default function CreateScreen() {
           {/* ── Numerical Fields ── */}
           {goalType === 'numerical' && (
             <View style={styles.section}>
-              <Text style={styles.label}>Target Value</Text>
-              <TextInput
-                style={styles.input}
-                value={targetValue}
-                onChangeText={setTargetValue}
-                placeholder="e.g. 5000"
-                placeholderTextColor="rgba(255,255,255,0.25)"
-                keyboardType="numeric"
-              />
-
               <Text style={styles.label}>Unit</Text>
               <ScrollView
                 horizontal
@@ -327,13 +385,63 @@ export default function CreateScreen() {
                 ))}
               </ScrollView>
 
-              <View style={styles.infoBox}>
-                <Text style={styles.infoText}>
-                  📊 10 milestones will be auto-generated from 0 to{' '}
-                  {unit}
-                  {targetValue || '0'}
-                </Text>
-              </View>
+              {isWeightUnit ? (
+                /* Weight goal: current weight + target weight */
+                <>
+                  <Text style={styles.label}>Current Weight ({unit})</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={currentWeight}
+                    onChangeText={setCurrentWeight}
+                    placeholder={`e.g. ${unit === 'kg' ? '84' : '185'}`}
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="numeric"
+                  />
+
+                  <Text style={styles.label}>Target Weight ({unit})</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={goalWeight}
+                    onChangeText={setGoalWeight}
+                    placeholder={`e.g. ${unit === 'kg' ? '70' : '155'}`}
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="numeric"
+                  />
+
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoText}>
+                      {currentWeight && goalWeight
+                        ? parseFloat(goalWeight) > parseFloat(currentWeight)
+                          ? `📈 Gain ${Math.abs(parseFloat(goalWeight) - parseFloat(currentWeight))} ${unit} — 10 milestones auto-generated`
+                          : parseFloat(goalWeight) < parseFloat(currentWeight)
+                            ? `📉 Lose ${Math.abs(parseFloat(currentWeight) - parseFloat(goalWeight))} ${unit} — 10 milestones auto-generated`
+                            : '⚠️ Current and target weight are the same'
+                        : `⚖️ Enter your current and target weight`}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                /* Non-weight numerical goal: target value */
+                <>
+                  <Text style={styles.label}>Target Value</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={targetValue}
+                    onChangeText={setTargetValue}
+                    placeholder="e.g. 5000"
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="numeric"
+                  />
+
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoText}>
+                      📊 10 milestones will be auto-generated from 0 to{' '}
+                      {unit}
+                      {targetValue || '0'}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
           )}
 

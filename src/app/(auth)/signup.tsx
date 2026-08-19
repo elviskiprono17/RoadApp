@@ -95,7 +95,7 @@ export default function SignUpScreen() {
       return;
     }
 
-    router.replace('/' as Href);
+    router.replace('/(onboarding)/questions' as Href);
   }
 
   async function handleAppleSignIn() {
@@ -108,7 +108,7 @@ export default function SignUpScreen() {
       return;
     }
 
-    router.replace('/' as Href);
+    router.replace('/(onboarding)/questions' as Href);
   }
 
   const isAnyLoading = loading || socialLoading !== null;

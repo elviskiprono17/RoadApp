@@ -8,7 +8,7 @@
     "scheme": "roadapp",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/icon.png",
       "usesAppleSignIn": true,
       "bundleIdentifier": "com.iamelvisblack.RoadApp"
     },
@@ -39,7 +39,14 @@
           }
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "color": "#F5C518",
+          "defaultChannel": "reminders"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
